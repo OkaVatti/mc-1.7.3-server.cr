@@ -1,9 +1,9 @@
+# src/network/connection.cr
 require "socket"
 require "../crystal_mc/constants"
 
 module CrystalMC::Network
   class Connection
-    # Instance variables with explicit initialization
     @socket : TCPSocket
     @server : CrystalMC::Server
     @username : String
@@ -14,8 +14,8 @@ module CrystalMC::Network
     @last_keep_alive : Time
     @compression_threshold : Int32
     @encryption_enabled : Bool
-
-    # Use nilable types for handlers and lazy initialization
+    @pending_chunks : Array(Tuple(Int32, Int32))
+    @chunk_send_timer : Time
     @net_handler : Protocol::NetHandler?
     @packet_handler : PacketHandler?
 
@@ -31,69 +31,9 @@ module CrystalMC::Network
       @encryption_enabled = false
       @pending_chunks = [] of Tuple(Int32, Int32)
       @chunk_send_timer = Time.utc
+      @player = nil
     end
 
-    def send_chunk_batch
-      return if @pending_chunks.empty?
-
-      # Send only 4 chunks per batch to avoid overwhelming the client
-      chunks_to_send = @pending_chunks.shift(4)
-
-      chunks_to_send.each do |chunk_x, chunk_z|
-        send_single_chunk(chunk_x, chunk_z)
-      end
-
-      @chunk_send_timer = Time.utc
-    end
-
-    def send_initial_chunks(player_chunk_x : Int32, player_chunk_z : Int32, view_distance : Int32)
-      chunk_coords = [] of Tuple(Int32, Int32)
-
-      (-view_distance..view_distance).each do |dx|
-        (-view_distance..view_distance).each do |dz|
-          chunk_x = player_chunk_x + dx
-          chunk_z = player_chunk_z + dz
-          chunk_coords << {chunk_x, chunk_z}
-        end
-      end
-
-      queue_chunks_for_sending(chunk_coords)
-    end
-
-    def send_single_chunk(chunk_x : Int32, chunk_z : Int32)
-      # Send PreChunk packet first
-      pre_chunk = Protocol::PreChunkPacket.new(chunk_x, chunk_z, true)
-      send_packet(pre_chunk)
-
-      # Generate and send the chunk
-      chunk = @server.world.get_chunk(chunk_x, chunk_z)
-      map_chunk = Protocol::MapChunkPacket.from_chunk(chunk)
-      send_packet(map_chunk)
-    end
-
-    def queue_chunks_for_sending(chunk_coords : Array(Tuple(Int32, Int32)))
-      @pending_chunks.concat(chunk_coords)
-    end
-
-    # Add this method to maintain compatibility with server code
-    def setup_handlers
-      # This method is now a no-op since handlers are lazy-initialized
-      # But we keep it for API compatibility with the server code
-      ensure_handlers_initialized
-    end
-
-    def queue_chunks_for_sending(chunk_coords : Array(Tuple(Int32, Int32)))
-      @pending_chunks.concat(chunk_coords)
-    end
-
-    # Add this method to maintain compatibility with server code
-    def setup_handlers
-      # This method is now a no-op since handlers are lazy-initialized
-      # But we keep it for API compatibility with the server code
-      ensure_handlers_initialized
-    end
-
-    # Lazy initialization for handlers
     private def ensure_handlers_initialized
       if @net_handler.nil?
         @net_handler = Protocol::NetHandler.new(self)
@@ -101,7 +41,6 @@ module CrystalMC::Network
       end
     end
 
-    # Accessors that ensure handlers are initialized
     def net_handler : Protocol::NetHandler
       ensure_handlers_initialized
       @net_handler.not_nil!
@@ -112,7 +51,10 @@ module CrystalMC::Network
       @packet_handler.not_nil!
     end
 
-    # Manual getters and setters for other properties
+    def setup_handlers
+      ensure_handlers_initialized
+    end
+
     def socket : TCPSocket
       @socket
     end
@@ -185,25 +127,65 @@ module CrystalMC::Network
       @encryption_enabled = value
     end
 
+    def logged_in? : Bool
+      @logged_in
+    end
+
+    def queue_chunks_for_sending(chunk_coords : Array(Tuple(Int32, Int32)))
+      @pending_chunks.concat(chunk_coords)
+    end
+
+    def send_chunk_batch
+      return if @pending_chunks.empty?
+
+      chunks_to_send = @pending_chunks.shift(4)
+
+      chunks_to_send.each do |chunk_x, chunk_z|
+        send_single_chunk(chunk_x, chunk_z)
+      end
+
+      @chunk_send_timer = Time.utc
+    end
+
+    def send_single_chunk(chunk_x : Int32, chunk_z : Int32)
+      pre_chunk = Protocol::PreChunkPacket.new(chunk_x, chunk_z, true)
+      send_packet(pre_chunk)
+
+      chunk = @server.world.get_chunk(chunk_x, chunk_z)
+      return unless chunk
+
+      map_chunk = Protocol::MapChunkPacket.from_chunk(chunk)
+      send_packet(map_chunk)
+    end
+
+    def send_initial_chunks(player_chunk_x : Int32, player_chunk_z : Int32, view_distance : Int32)
+      chunk_coords = [] of Tuple(Int32, Int32)
+
+      (-view_distance..view_distance).each do |dx|
+        (-view_distance..view_distance).each do |dz|
+          chunk_x = player_chunk_x + dx
+          chunk_z = player_chunk_z + dz
+          chunk_coords << {chunk_x, chunk_z}
+        end
+      end
+
+      queue_chunks_for_sending(chunk_coords)
+    end
+
     def handle
       puts "Starting packet handling loop for #{@username || "unknown"} from #{@socket.remote_address}"
-
-      # Ensure handlers are initialized before starting the loop
       ensure_handlers_initialized
 
       while !@socket.closed?
         begin
-          # Read packet ID
           packet_id = read_byte
           puts "📦 Received packet ID: 0x#{packet_id.to_s(16).upcase.rjust(2, '0')}"
 
-          # Read and handle packet
           packet = Protocol::Packets.read_packet(packet_id, @socket)
 
           if packet
             puts "🔄 Handling packet: 0x#{packet_id.to_s(16).upcase.rjust(2, '0')} - #{packet.class}"
 
-            # Special logging for handshake packets
             if packet.is_a?(Protocol::HandshakePacket)
               handshake = packet.as(Protocol::HandshakePacket)
               puts "  🤝 Handshake details: version=#{handshake.protocol_version}, user='#{handshake.username}', host='#{handshake.server_host}'"
@@ -212,7 +194,6 @@ module CrystalMC::Network
             packet.handle(net_handler)
           else
             puts "❓ Unknown packet ID: 0x#{packet_id.to_s(16).upcase.rjust(2, '0')}"
-            puts "  ⚠️  Unknown packet, but continuing to next packet..."
           end
         rescue ex : IO::EOFError
           puts "🔌 Client disconnected: #{@username || "unknown"}"
@@ -222,7 +203,7 @@ module CrystalMC::Network
           break
         rescue ex
           puts "💥 Error handling packet: #{ex.message}"
-          puts "  ⚠️  Continuing to next packet despite error..."
+          puts ex.backtrace.join("\n")
         end
       end
     ensure
@@ -272,7 +253,9 @@ module CrystalMC::Network
       puts "Disconnecting #{@username || "unknown"}: #{reason}"
 
       if username = @username
-        @server.remove_player(username)
+        unless username.empty?
+          @server.remove_player(username)
+        end
       end
 
       @logged_in = false
@@ -283,13 +266,10 @@ module CrystalMC::Network
       if !@pending_chunks.empty? && (Time.utc - @chunk_send_timer).total_milliseconds > 50
         send_chunk_batch
       end
+
       if @logged_in && (Time.utc - @last_keep_alive).total_seconds > TIMEOUT_SECONDS
         disconnect("Timed out")
       end
-    end
-
-    def logged_in? : Bool
-      @logged_in
     end
 
     private def read_byte : UInt8
@@ -297,18 +277,9 @@ module CrystalMC::Network
       raise IO::EOFError.new if byte.nil?
       byte
     end
-
-    # Lazy initialization for handlers
-    private def ensure_handlers_initialized
-      if @net_handler.nil?
-        @net_handler = Protocol::NetHandler.new(self)
-        @packet_handler = PacketHandler.new(self)
-      end
-    end
   end
 end
 
-# Load dependent files after Connection class is defined
 require "./protocol/packets/packet"
 require "./protocol/packets/keep_alive_packet"
 require "./protocol/packets/handshake_packet"

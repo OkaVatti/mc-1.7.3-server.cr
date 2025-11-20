@@ -37,6 +37,11 @@ module CrystalMC::Network
       player = World::Player.new(@connection.server.world, entity_id, username, @connection)
       @connection.player = player
       @connection.server.add_player(player)
+      # Spawn this player for all other players
+      spawn_player_for_others(player)
+
+      # Spawn all other players for this player
+      spawn_other_players_for(player)
 
       puts "Player #{username} logged in (entity ID: #{entity_id})"
 
@@ -73,6 +78,68 @@ module CrystalMC::Network
       @connection.server.broadcast_except("§e#{username} joined the game", username)
 
       puts "✅ Completed Beta 1.7.3 login sequence for #{username}"
+    end
+
+    private def despawn_player_for_others(player : World::Player)
+      destroy_packet = Protocol::EntityDestroyPacket.new(player.entity_id)
+
+      @connection.server.@connections.each do |conn|
+        next unless conn.logged_in?
+        next if conn.username == player.username
+
+        conn.send_packet(destroy_packet)
+      end
+    end
+
+    private def spawn_player_for_others(player : World::Player)
+      x = (player.x * 32).to_i32
+      y = (player.y * 32).to_i32
+      z = (player.z * 32).to_i32
+      yaw = ((player.yaw / 360.0) * 256).to_i8
+      pitch = ((player.pitch / 360.0) * 256).to_i8
+
+      spawn_packet = Protocol::NamedEntitySpawnPacket.new(
+        entity_id: player.entity_id,
+        player_name: player.username,
+        x: x,
+        y: y,
+        z: z,
+        rotation: yaw,
+        pitch: pitch,
+        current_item: 0
+      )
+
+      @connection.server.@connections.each do |conn|
+        next unless conn.logged_in?
+        next if conn.username == player.username
+
+        conn.send_packet(spawn_packet)
+      end
+    end
+
+    private def spawn_other_players_for(player : World::Player)
+      @connection.server.players.each_value do |other_player|
+        next if other_player.username == player.username
+
+        x = (other_player.x * 32).to_i32
+        y = (other_player.y * 32).to_i32
+        z = (other_player.z * 32).to_i32
+        yaw = ((other_player.yaw / 360.0) * 256).to_i8
+        pitch = ((other_player.pitch / 360.0) * 256).to_i8
+
+        spawn_packet = Protocol::NamedEntitySpawnPacket.new(
+          entity_id: other_player.entity_id,
+          player_name: other_player.username,
+          x: x,
+          y: y,
+          z: z,
+          rotation: yaw,
+          pitch: pitch,
+          current_item: 0
+        )
+
+        @connection.send_packet(spawn_packet)
+      end
     end
 
     def handle_login(packet : Protocol::LoginPacket)
@@ -178,6 +245,8 @@ module CrystalMC::Network
       player.y = packet.y
       player.z = packet.z
       player.on_ground = packet.on_ground
+
+      broadcast_player_movement
     end
 
     def handle_player_look(packet : Protocol::PlayerLookPacket)
@@ -187,6 +256,8 @@ module CrystalMC::Network
       player.yaw = packet.yaw
       player.pitch = packet.pitch
       player.on_ground = packet.on_ground
+
+      broadcast_player_movement
     end
 
     def handle_player_look_move(packet : Protocol::PlayerLookMovePacket)
@@ -199,6 +270,41 @@ module CrystalMC::Network
       player.yaw = packet.yaw
       player.pitch = packet.pitch
       player.on_ground = packet.on_ground
+
+      broadcast_player_movement
+    end
+
+    def send_initial_chunks(player_chunk_x : Int32, player_chunk_z : Int32, view_distance : Int32)
+      @connection.send_initial_chunks(player_chunk_x, player_chunk_z, view_distance)
+    end
+
+    def broadcast_player_movement
+      player = @connection.player
+      return unless player
+
+      # Convert to absolute integer positions (scaled by 32 for precision)
+      x = (player.x * 32).to_i32
+      y = (player.y * 32).to_i32
+      z = (player.z * 32).to_i32
+      yaw = ((player.yaw / 360.0) * 256).to_i8
+      pitch = ((player.pitch / 360.0) * 256).to_i8
+
+      # Send entity teleport packet to all other players
+      teleport_packet = Protocol::EntityTeleportPacket.new(
+        entity_id: player.entity_id,
+        x: x,
+        y: y,
+        z: z,
+        yaw: yaw,
+        pitch: pitch
+      )
+
+      @connection.server.@connections.each do |conn|
+        next unless conn.logged_in?
+        next if conn.username == player.username
+
+        conn.send_packet(teleport_packet)
+      end
     end
 
     def handle_block_dig(packet : Protocol::BlockDigPacket)

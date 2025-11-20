@@ -1,8 +1,9 @@
+# src/network/protocol/packets/player_look_packet.cr
 require "./packet"
 require "./protocol_helper"
 
 module CrystalMC::Network::Protocol
-  abstract class PlayerLookPacket < Packet
+  class PlayerLookPacket < Packet
     property yaw : Float32
     property pitch : Float32
     property on_ground : Bool
@@ -25,7 +26,6 @@ module CrystalMC::Network::Protocol
     end
 
     def write(io : IO)
-      ProtocolHelper.write_ubyte(io, packet_id)
       ProtocolHelper.write_float(io, @yaw)
       ProtocolHelper.write_float(io, @pitch)
       ProtocolHelper.write_bool(io, @on_ground)
@@ -33,6 +33,10 @@ module CrystalMC::Network::Protocol
 
     def handle(handler : NetHandler)
       handler.handle_player_look(self)
+    end
+
+    def clone : Packet
+      PlayerLookPacket.new(@yaw, @pitch, @on_ground)
     end
   end
 end

@@ -1,7 +1,7 @@
 # src/network/protocol/packets/map_chunk_packet.cr
 require "./packet"
 require "./protocol_helper"
-require "zlib"
+require "compress/zlib"
 
 module CrystalMC::Network::Protocol
   class MapChunkPacket < Packet
@@ -63,8 +63,16 @@ module CrystalMC::Network::Protocol
       # Get uncompressed chunk data
       uncompressed = chunk.to_bytes
 
-      # Compress with Zlib (Minecraft uses raw Zlib compression)
-      compressed_data = Zlib::Deflate.deflate(uncompressed)
+      # Create a memory buffer to hold the compressed data
+      compressed_io = IO::Memory.new
+
+      # Compress the data using Zlib::Deflate in a streaming manner
+      Compress::Deflate::Writer.open(compressed_io) do |deflate|
+        deflate.write(uncompressed)
+      end
+
+      # Get the compressed bytes from the memory buffer
+      compressed_data = compressed_io.to_slice
 
       new(
         x: chunk.x * 16,

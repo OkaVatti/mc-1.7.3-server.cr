@@ -1,8 +1,9 @@
+# src/network/protocol/packets/block_dig_packet.cr
 require "./packet"
 require "./protocol_helper"
 
 module CrystalMC::Network::Protocol
-  abstract class BlockDigPacket < Packet
+  class BlockDigPacket < Packet
     property status : Int8
     property x : Int32
     property y : Int8
@@ -31,7 +32,6 @@ module CrystalMC::Network::Protocol
     end
 
     def write(io : IO)
-      ProtocolHelper.write_ubyte(io, packet_id)
       ProtocolHelper.write_byte(io, @status)
       ProtocolHelper.write_int(io, @x)
       ProtocolHelper.write_byte(io, @y)
@@ -41,6 +41,10 @@ module CrystalMC::Network::Protocol
 
     def handle(handler : NetHandler)
       handler.handle_block_dig(self)
+    end
+
+    def clone : Packet
+      BlockDigPacket.new(@status, @x, @y, @z, @face)
     end
   end
 end

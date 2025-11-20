@@ -1,9 +1,0 @@
----
-version: 1.0
-shards:
-  radix:
-    git: https://github.com/luislavena/radix.git
-    version: 0.4.1
-  ameba:
-    git: https://github.com/crystal-ameba/ameba.git
-    version: 1.6.4

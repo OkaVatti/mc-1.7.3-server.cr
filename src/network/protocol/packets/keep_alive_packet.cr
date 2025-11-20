@@ -2,7 +2,13 @@ module CrystalMC::Network::Protocol
   class KeepAlivePacket < Packet
     property keep_alive_id : Int32
 
-    def initialize(@keep_alive_id : Int32 = 0)
+    # Add zero-argument constructor
+    def initialize
+      @keep_alive_id = 0
+    end
+
+    # Keep existing constructor for manual creation
+    def initialize(@keep_alive_id : Int32)
     end
 
     def packet_id : UInt8
@@ -10,11 +16,12 @@ module CrystalMC::Network::Protocol
     end
 
     def read(io : IO)
-      @keep_alive_id = read_int(io)
+      @keep_alive_id = ProtocolHelper.read_int(io)
     end
 
     def write(io : IO)
-      write_int(io, @keep_alive_id)
+      ProtocolHelper.write_ubyte(io, packet_id)
+      ProtocolHelper.write_int(io, @keep_alive_id)
     end
 
     def handle(handler : NetHandler)

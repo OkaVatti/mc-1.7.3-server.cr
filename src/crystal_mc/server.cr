@@ -98,8 +98,18 @@ module CrystalMC
       end
     end
 
+    # In src/crystal_mc/server.cr, update remove_player:
+
     def remove_player(username : String)
       if player = @players.delete(username)
+        # Despawn player for all others
+        destroy_packet = Network::Protocol::EntityDestroyPacket.new(player.entity_id)
+        @connections.each do |conn|
+          next unless conn.logged_in?
+          next if conn.username == username
+          conn.send_packet(destroy_packet)
+        end
+
         @plugin_manager.try do |pm|
           pm.call_player_quit(player)
         end

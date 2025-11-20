@@ -18,6 +18,9 @@ require "./block_change_packet"
 require "./kick_disconnect_packet"
 require "./pre_chunk_packet"
 require "./map_chunk_packet"
+require "./named_entity_spawn_packet"
+require "./entity_destroy_packet"
+require "./entity_teleport_packet"
 
 module CrystalMC::Network::Protocol::Packets
   # Single source of truth for packet registry
@@ -32,12 +35,19 @@ module CrystalMC::Network::Protocol::Packets
     return nil unless packet_class
 
     begin
-      packet = packet_class.new
+      # Handle specific packet types that need special instantiation
+      packet = case packet_class
+               when KeepAlivePacket
+                 KeepAlivePacket.new
+               else
+                 # For packets with default parameters in constructor, use .new
+                 packet_class.new
+               end
+
       packet.read(io)
       packet
-    rescue ex
-      puts "Error reading packet 0x#{packet_id.to_s(16)}: #{ex.message}"
-      puts ex.backtrace.join("\n") if ex.backtrace
+    rescue ex : Exception
+      puts "Error reading packet 0x#{packet_id.to_s(16)} (#{packet_class}): #{ex.message}"
       nil
     end
   end
@@ -51,15 +61,18 @@ module CrystalMC::Network::Protocol::Packets
   register_packet(0x06_u8, SpawnPositionPacket)
   register_packet(0x08_u8, HealthUpdatePacket)
   register_packet(0x09_u8, RespawnPacket)
+  register_packet(0x14_u8, NamedEntitySpawnPacket)
+  register_packet(0x22_u8, EntityTeleportPacket)
+  register_packet(0x32_u8, PreChunkPacket)
+  register_packet(0x33_u8, MapChunkPacket)
+  register_packet(0x35_u8, BlockChangePacket)
   register_packet(0x0B_u8, PlayerPosPacket)
   register_packet(0x0C_u8, PlayerLookPacket)
   register_packet(0x0D_u8, PlayerLookMovePacket)
   register_packet(0x0E_u8, BlockDigPacket)
   register_packet(0x0F_u8, BlockPlacePacket)
-  register_packet(0x32_u8, PreChunkPacket)
-  register_packet(0x33_u8, MapChunkPacket)
-  register_packet(0x35_u8, BlockChangePacket)
   register_packet(0xFF_u8, KickDisconnectPacket)
+  register_packet(0x1D_u8, EntityDestroyPacket)
 
   # Debug method to list all registered packets
   def self.list_packets
