@@ -1,6 +1,4 @@
 module CrystalMC
-  VERSION = "0.1.0"
-
   # Minecraft Beta 1.7.3 information
   MINECRAFT_VERSION = "Beta 1.7.3"
 

@@ -3,10 +3,12 @@ require "./crystal_mc/server"
 require "./config/server_config"
 
 module CrystalMC
+  PROTOCOL_VERSION = Constants::PROTOCOL_VERSION
+
   def self.start
     puts "╔══════════════════════════════════════════════════╗"
-    puts "║     CrystalMC - Minecraft Beta 1.7.3 Server     ║"
-    puts "║              Version #{VERSION.ljust(24)}║"
+    puts "║     CrystalMC - Minecraft Beta 1.7.3 Server      ║"
+    puts "║              Version #{VERSION.ljust(24)}  ║"
     puts "╚══════════════════════════════════════════════════╝"
     puts ""
     puts "Target Protocol: Minecraft Beta 1.7.3 (Protocol #{PROTOCOL_VERSION})"

@@ -64,7 +64,7 @@ module CrystalMC::World
 
     # Get block at world coordinates
     def get_block(x : Int32, y : Int32, z : Int32) : Block
-      return Block.air if y < 0 || y >= WORLD_HEIGHT
+      return Block.air if y < 0 || y >= Constants::WORLD_HEIGHT
 
       chunk_x, local_x = world_to_chunk_coord(x)
       chunk_z, local_z = world_to_chunk_coord(z)
@@ -77,7 +77,7 @@ module CrystalMC::World
 
     # Set block at world coordinates
     def set_block(x : Int32, y : Int32, z : Int32, block : Block)
-      return if y < 0 || y >= WORLD_HEIGHT
+      return if y < 0 || y >= Constants::WORLD_HEIGHT
 
       chunk_x, local_x = world_to_chunk_coord(x)
       chunk_z, local_z = world_to_chunk_coord(z)
@@ -110,11 +110,17 @@ module CrystalMC::World
       @chunks.size
     end
 
-    # Convert world coordinate to chunk coordinate and local coordinate
     private def world_to_chunk_coord(coord : Int32) : Tuple(Int32, Int32)
-      chunk_coord = coord.floor_div(CHUNK_SIZE)
-      local_coord = coord.remainder(CHUNK_SIZE)
-      local_coord += CHUNK_SIZE if local_coord < 0
+      # Use integer division for chunk coordinate
+      chunk_coord = coord // Constants::CHUNK_WIDTH
+
+      # Calculate local coordinate within chunk
+      local_coord = coord % Constants::CHUNK_WIDTH
+
+      # Ensure local coordinate is positive
+      if local_coord < 0
+        local_coord += Constants::CHUNK_WIDTH
+      end
 
       {chunk_coord, local_coord}
     end

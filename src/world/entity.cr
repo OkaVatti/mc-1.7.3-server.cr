@@ -1,44 +1,22 @@
 module CrystalMC::World
   abstract class Entity
+    property world : World
     property entity_id : Int32
     property x : Float64
     property y : Float64
     property z : Float64
-    property yaw : Float32
-    property pitch : Float32
-    property velocity_x : Float64
-    property velocity_y : Float64
-    property velocity_z : Float64
-    property on_ground : Bool
-    property world : World
+    property dead : Bool = false
 
     def initialize(@world : World, @entity_id : Int32, @x : Float64, @y : Float64, @z : Float64)
-      @yaw = 0.0_f32
-      @pitch = 0.0_f32
-      @velocity_x = 0.0
-      @velocity_y = 0.0
-      @velocity_z = 0.0
-      @on_ground = false
     end
 
-    abstract def tick
     abstract def entity_type : String
-
-    def move(dx : Float64, dy : Float64, dz : Float64)
-      @x += dx
-      @y += dy
-      @z += dz
-    end
+    abstract def tick
 
     def set_position(x : Float64, y : Float64, z : Float64)
       @x = x
       @y = y
       @z = z
-    end
-
-    def set_rotation(yaw : Float32, pitch : Float32)
-      @yaw = yaw
-      @pitch = pitch
     end
 
     def distance_to(other : Entity) : Float64
@@ -53,6 +31,14 @@ module CrystalMC::World
       dy = @y - y
       dz = @z - z
       Math.sqrt(dx * dx + dy * dy + dz * dz)
+    end
+
+    def kill
+      @dead = true
+    end
+
+    def dead? : Bool
+      @dead
     end
   end
 end

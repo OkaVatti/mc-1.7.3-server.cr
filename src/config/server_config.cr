@@ -1,4 +1,5 @@
 require "yaml"
+require "../crystal_mc/constants"
 
 module CrystalMC::Config
   class ServerConfig

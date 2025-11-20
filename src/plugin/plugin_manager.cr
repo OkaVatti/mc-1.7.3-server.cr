@@ -18,6 +18,16 @@ module CrystalMC::Plugin
       @tasks = [] of ScheduledTask
     end
 
+    def call_player_command(player : World::Player, command : String, args : Array(String)) : Bool
+      # Return true if plugin handled the command
+      false
+    end
+
+    def loaded_plugins : Array(String)
+      # Fix: Use explicit block with type annotation
+      @plugins.map { |plugin| plugin.name.as(String) }
+    end
+
     def load_plugin(plugin : Plugin)
       @plugins << plugin
       log_info "Loading plugin: #{plugin.name} v#{plugin.version} by #{plugin.author}"
@@ -50,7 +60,24 @@ module CrystalMC::Plugin
     end
 
     def unload_all
-      @plugins.each { |plugin| unload_plugin(plugin) }
+      log_info "Unloading all plugins..."
+
+      # Call on_disable for all plugins in reverse order (dependency order)
+      @plugins.reverse_each do |plugin|
+        begin
+          plugin.on_disable
+          log_info "Disabled plugin: #{plugin.name}"
+        rescue ex
+          log_error "Error disabling plugin #{plugin.name}: #{ex.message}"
+        end
+      end
+
+      # Clear all collections
+      @plugins.clear
+      @commands.clear
+      @tasks.clear
+
+      log_info "All plugins unloaded"
     end
 
     def register_command(name : String, plugin : Plugin, handler : Proc(World::Player, Array(String), Nil))
@@ -124,22 +151,26 @@ module CrystalMC::Plugin
     def call_player_chat(player : World::Player, message : String) : String?
       result = message
       @plugins.each do |plugin|
-        result = plugin.on_player_chat(player, result)
-        return nil if result.nil?
+        modified = plugin.on_player_chat(player, result)
+        if modified.nil?
+          return nil
+        else
+          result = modified
+        end
       end
       result
     end
 
-    def call_block_break(player : World::Player, x : Int32, y : Int32, z : Int32) : Bool
+    def call_block_break(player : World::Player, x : Int32, y : Int32, z : Int32, face : Int8) : Bool
       @plugins.each do |plugin|
-        return false unless plugin.on_block_break(player, x, y, z)
+        return false unless plugin.on_block_break(player, x, y, z, face)
       end
       true
     end
 
-    def call_block_place(player : World::Player, x : Int32, y : Int32, z : Int32, block : World::Block) : Bool
+    def call_block_place(player : World::Player, x : Int32, y : Int32, z : Int32, block_type : UInt8) : Bool
       @plugins.each do |plugin|
-        return false unless plugin.on_block_place(player, x, y, z, block)
+        return false unless plugin.on_block_place(player, x, y, z, block_type)
       end
       true
     end
@@ -150,27 +181,6 @@ module CrystalMC::Plugin
 
     private def log_error(message : String)
       puts "[PluginManager] ERROR: #{message}"
-    end
-
-    def unload_all
-      log_info "Unloading all plugins..."
-
-      # Call on_disable for all plugins in reverse order (dependency order)
-      @plugins.reverse_each do |plugin|
-        begin
-          plugin.on_disable
-          log_info "Disabled plugin: #{plugin.name}"
-        rescue ex
-          log_error "Error disabling plugin #{plugin.name}: #{ex.message}"
-        end
-      end
-
-      # Clear all collections
-      @plugins.clear
-      @commands.clear
-      @tasks.clear
-
-      log_info "All plugins unloaded"
     end
 
     record CommandHandler, plugin : Plugin, handler : Proc(World::Player, Array(String), Nil)

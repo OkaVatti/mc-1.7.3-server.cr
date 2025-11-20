@@ -1,28 +1,43 @@
+# src/crystal_mc/constants.cr
 module CrystalMC
-  # Server constants
-  DEFAULT_PORT    = 25565
-  MAX_PACKET_SIZE = 32767
+  VERSION = "0.1.0"
 
-  # World constants
+  class Constants
+    # Server timing
+    TICK_DURATION       = 50.milliseconds
+    KEEP_ALIVE_INTERVAL = 100 # ticks
+    TIMEOUT_SECONDS     =  30
 
-  # Tick constants
-  TICKS_PER_SECOND    =   20
-  TICK_DURATION       = 50.0 # 50ms per tick (20 TPS)
-  KEEP_ALIVE_INTERVAL =   20 # Send keep-alive every second (20 ticks)
-  TIMEOUT_SECONDS     = 30.0 # Disconnect after 30 seconds of inactivity
+    # Player limits
+    MAX_PLAYER_NAME_LENGTH = 16
 
-  # Protocol constants
-  PROTOCOL_VERSION = 14_u8 # Minecraft Beta 1.7.3
+    # World dimensions
+    WORLD_HEIGHT = 128
+    CHUNK_WIDTH  =  16
+    CHUNK_HEIGHT = 128
+    CHUNK_DEPTH  =  16
+    CHUNK_SIZE   =  16
 
-  # World constants
-  WORLD_HEIGHT = 128
-  SEA_LEVEL    =  62
-  MAX_PLAYERS  = 100
-  CHUNK_SIZE   =  16
-  CHUNK_HEIGHT = 128
+    # Protocol
+    PROTOCOL_VERSION = 14 # Beta 1.7.3
 
-  # Player constants
-  MAX_PLAYER_NAME_LENGTH = 16
-  DEFAULT_GAMEMODE       =  0 # Survival
-  DEFAULT_DIMENSION      =  0 # Overworld
+    # Network
+    MAX_PACKET_SIZE       = 32767
+    COMPRESSION_THRESHOLD =   256
+
+    # Game settings
+    DEFAULT_GAMEMODE      =  0 # Survival
+    DEFAULT_DIFFICULTY    =  1 # Normal
+    DEFAULT_MAX_PLAYERS   = 20
+    DEFAULT_VIEW_DISTANCE = 10
+
+    # Entity limits
+    MAX_ENTITY_ID = 2147483647
+
+    # Physics
+    PLAYER_EYE_HEIGHT = 1.62
+    GRAVITY           = 0.08
+    PLAYER_WIDTH      =  0.6
+    PLAYER_HEIGHT     =  1.8
+  end
 end

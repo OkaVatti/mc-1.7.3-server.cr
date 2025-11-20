@@ -18,6 +18,7 @@ module CrystalMC::Network
     @chunk_send_timer : Time
     @net_handler : Protocol::NetHandler?
     @packet_handler : PacketHandler?
+    TIMEOUT_SECONDS = 120
 
     def initialize(socket : TCPSocket, server : CrystalMC::Server)
       @socket = socket

@@ -1,46 +1,16 @@
+# src/world/block.cr
 module CrystalMC::World
-  class Block
+  struct Block
     property id : UInt8
     property metadata : UInt8
 
-    def initialize(@id : UInt8, @metadata : UInt8)
-    end
-
-    def self.air
-      new(0_u8, 0_u8)
-    end
-
-    def self.stone
-      new(1_u8, 0_u8)
-    end
-
-    def self.water_stationary
-      new(8_u8, 0_u8) # Or whatever the correct block ID is for stationary water
-    end
-
-    def air? : Bool
-      @id == 0
-    end
-
-    def solid? : Bool
-      !air? && SOLID_BLOCKS.includes?(@id)
-    end
-
-    def transparent? : Bool
-      TRANSPARENT_BLOCKS.includes?(@id)
-    end
-
-    def self.air
-      new(0_u8, 0_u8)
-    end
-
-    # Block type constants (Beta 1.7.3)
+    # Block IDs for Beta 1.7.3
     AIR              =  0_u8
     STONE            =  1_u8
     GRASS            =  2_u8
     DIRT             =  3_u8
     COBBLESTONE      =  4_u8
-    PLANKS           =  5_u8
+    WOOD_PLANKS      =  5_u8
     SAPLING          =  6_u8
     BEDROCK          =  7_u8
     WATER_FLOWING    =  8_u8
@@ -59,14 +29,74 @@ module CrystalMC::World
 
     # Collections for block properties
     SOLID_BLOCKS = Set{
-      STONE, GRASS, DIRT, COBBLESTONE, PLANKS, BEDROCK,
+      STONE, GRASS, DIRT, COBBLESTONE, WOOD_PLANKS, BEDROCK,
       SAND, GRAVEL, GOLD_ORE, IRON_ORE, COAL_ORE, WOOD,
       LEAVES, SPONGE, GLASS,
     }
 
     TRANSPARENT_BLOCKS = Set{
-      AIR, SAPLING, WATER, WATER_STATIONARY, LAVA, LAVA_STATIONARY,
-      GLASS, LEAVES,
+      AIR, SAPLING, WATER_FLOWING, WATER_STATIONARY,
+      LAVA_FLOWING, LAVA_STATIONARY, GLASS, LEAVES,
     }
+
+    def initialize(@id : UInt8, @metadata : UInt8)
+    end
+
+    def self.air : Block
+      new(AIR, 0_u8)
+    end
+
+    def self.stone : Block
+      new(STONE, 0_u8)
+    end
+
+    def self.water_stationary : Block
+      new(WATER_STATIONARY, 0_u8)
+    end
+
+    def self.grass : Block
+      new(GRASS, 0_u8)
+    end
+
+    def self.dirt : Block
+      new(DIRT, 0_u8)
+    end
+
+    def self.bedrock : Block
+      new(BEDROCK, 0_u8)
+    end
+
+    def self.sand : Block
+      new(SAND, 0_u8)
+    end
+
+    def self.gravel : Block
+      new(GRAVEL, 0_u8)
+    end
+
+    def air? : Bool
+      @id == AIR
+    end
+
+    def solid? : Bool
+      !air? && SOLID_BLOCKS.includes?(@id)
+    end
+
+    def transparent? : Bool
+      TRANSPARENT_BLOCKS.includes?(@id)
+    end
+
+    def liquid? : Bool
+      @id == WATER_FLOWING || @id == WATER_STATIONARY ||
+        @id == LAVA_FLOWING || @id == LAVA_STATIONARY
+    end
+
+    def ==(other : Block) : Bool
+      @id == other.id && @metadata == other.metadata
+    end
+
+    def to_s(io : IO)
+      io << "Block(#{@id}:#{@metadata})"
+    end
   end
 end

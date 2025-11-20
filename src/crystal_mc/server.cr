@@ -53,11 +53,12 @@ module CrystalMC
       @server = TCPServer.new(@host, @port)
       @running = true
 
-      puts "Server started on #{@host}:#{@port}"
-      puts "MOTD: #{@motd}"
-      puts "Max players: #{@max_players}"
-      puts "World: #{@world.name} (seed: #{@world.seed})"
-      puts "Authentication: #{Auth::Authenticator.online_mode? ? "Online" : "Offline"} mode"
+      puts "🚀 Starting CrystalMC server..."
+      puts "📍 Host: #{@host}:#{@port}"
+      puts "📝 MOTD: #{@motd}"
+      puts "👥 Max players: #{@max_players}"
+      puts "🌍 World: #{@world.name} (seed: #{@world.seed})"
+      puts "🔐 Authentication: #{Auth::Authenticator.online_mode? ? "Online" : "Offline"} mode"
       puts ""
 
       load_plugins
@@ -97,8 +98,6 @@ module CrystalMC
         pm.call_player_join(player)
       end
     end
-
-    # In src/crystal_mc/server.cr, update remove_player:
 
     def remove_player(username : String)
       if player = @players.delete(username)
@@ -145,7 +144,6 @@ module CrystalMC
 
     private def handle_client(socket : TCPSocket)
       connection = Network::Connection.new(socket, self)
-      # Remove this line: connection.setup_handlers
       @connections << connection
 
       puts "New connection from #{socket.remote_address}"
@@ -168,14 +166,14 @@ module CrystalMC
           tick(tick_counter)
           tick_counter += 1
 
-          elapsed = (Time.monotonic - start_time).total_milliseconds
-          sleep_time = TICK_DURATION - elapsed
+          elapsed_time = Time.monotonic - start_time
+          sleep_time = Constants::TICK_DURATION - elapsed_time
 
-          if sleep_time > 0
-            sleep sleep_time.milliseconds
+          if sleep_time > Time::Span.zero
+            sleep sleep_time
           else
             if tick_counter % 100 == 0
-              puts "Warning: Server running behind! Tick took #{elapsed.round(2)}ms"
+              puts "Warning: Server running behind! Tick took #{elapsed_time.total_milliseconds.round(2)}ms"
             end
           end
         end
@@ -193,7 +191,7 @@ module CrystalMC
         pm.tick
       end
 
-      if tick_counter % KEEP_ALIVE_INTERVAL == 0
+      if tick_counter % Constants::KEEP_ALIVE_INTERVAL == 0
         @connections.each do |conn|
           conn.send_keep_alive if conn.logged_in?
         end
@@ -222,6 +220,14 @@ module CrystalMC
     def broadcast(message : String)
       @connections.each do |conn|
         conn.send_chat_message(message) if conn.logged_in?
+      end
+    end
+
+    def broadcast_packet(packet : Network::Protocol::Packet, except_username : String? = nil)
+      @connections.each do |conn|
+        if conn.logged_in? && conn.username != except_username
+          conn.send_packet(packet)
+        end
       end
     end
 
