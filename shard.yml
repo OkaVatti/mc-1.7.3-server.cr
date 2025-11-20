@@ -1,0 +1,19 @@
+name: mc-1-7-3-server-cr
+version: 0.1.0
+
+authors:
+  - name <email@example.com>
+
+description: |
+  Short description of mc-1-7-3-server-cr
+
+targets:
+  minecraft-server:
+    main: src/main.cr
+
+dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: ~> 1.6.0
+
+license: MIT
