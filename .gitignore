@@ -1,0 +1,11 @@
+./shard.lock
+.vscode/
+./logs/
+./lib/
+*.log
+*.tmp
+.env
+
+# Ignore build output
+/dist/
+/build/
