@@ -135,10 +135,31 @@ module CrystalMC::Network::Protocol
       @connection.disconnect(packet.reason)
     end
 
-    def handle_chat(packet : ChatPacket)
-      puts "💬 Chat received from #{@connection.username}: #{packet.message}"
-      # Echo back or process chat message
-      @connection.send_chat_message("Echo: #{packet.message}")
+    # src/network/packet_handler.cr - Update the handle_chat method
+    def handle_chat(packet : Protocol::ChatPacket)
+      username = @connection.username
+      return unless username
+
+      player = @connection.player
+      return unless player
+
+      message = packet.message
+
+      # Check for commands
+      if message.starts_with?("/")
+        handle_command(message[1..], player)
+      else
+        # Call plugin chat event (with nil-safety)
+        pm = @connection.server.plugin_manager
+        modified_message = pm ? pm.call_player_chat(player, message) : message
+
+        if modified_message
+          # Broadcast chat message
+          formatted = "<#{username}> #{modified_message}"
+          @connection.server.broadcast(formatted)
+          puts formatted
+        end
+      end
     end
 
     def handle_player_position(packet : PlayerPosPacket)

@@ -5,7 +5,7 @@ module CrystalMC::Network::Protocol
     property z : Int32
     property mode : Bool
 
-    def initialize(@x : Int32, @z : Int32, @mode : Bool)
+    def initialize(@x : Int32 = 0, @z : Int32 = 0, @mode : Bool = false)
     end
 
     def packet_id : UInt8
@@ -19,7 +19,6 @@ module CrystalMC::Network::Protocol
     end
 
     def write(io : IO)
-      ProtocolHelper.write_ubyte(io, packet_id)
       ProtocolHelper.write_int(io, @x)
       ProtocolHelper.write_int(io, @z)
       ProtocolHelper.write_bool(io, @mode)

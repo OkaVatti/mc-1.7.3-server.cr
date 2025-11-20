@@ -5,27 +5,6 @@ module CrystalMC::Network::Protocol
     abstract def handle(handler : NetHandler)
     abstract def clone : Packet
 
-    # Add a class method for creating packets
-    def self.create_and_read(io : IO) : Packet
-      packet = new
-      packet.read(io)
-      packet
-    end
-
-    # Then in packets.cr, modify read_packet:
-    def self.read_packet(packet_id : UInt8, io : IO) : Packet?
-      packet_class = PACKET_REGISTRY[packet_id]?
-      return nil unless packet_class
-
-      begin
-        packet_class.create_and_read(io)
-      rescue ex
-        puts "Error reading packet 0x#{packet_id.to_s(16)}: #{ex.message}"
-        puts ex.backtrace.join("\n") if ex.backtrace
-        nil
-      end
-    end
-
     def packet_id : UInt8
       raise "packet_id not implemented for #{self.class}"
     end

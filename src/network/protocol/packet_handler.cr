@@ -307,6 +307,7 @@ module CrystalMC::Network
       end
     end
 
+    # src/network/packet_handler.cr - Update handle_block_dig
     def handle_block_dig(packet : Protocol::BlockDigPacket)
       player = @connection.player
       return unless player
@@ -315,8 +316,9 @@ module CrystalMC::Network
       y = packet.y.to_i32
       z = packet.z
 
-      # Call plugin event
-      unless @connection.server.plugin_manager.call_block_break(player, x, y, z)
+      # Call plugin event (with nil-safety)
+      pm = @connection.server.plugin_manager
+      if pm && !pm.call_block_break(player, x, y, z)
         # Plugin cancelled the event - send block back to client
         resend_block(x, y, z)
         return
@@ -339,6 +341,7 @@ module CrystalMC::Network
       end
     end
 
+    # src/network/packet_handler.cr - Update handle_block_place
     def handle_block_place(packet : Protocol::BlockPlacePacket)
       player = @connection.player
       return unless player
@@ -369,8 +372,9 @@ module CrystalMC::Network
       # For simplicity, assume item_id corresponds to block_id
       block = World::Block.new(packet.item_id.to_u8, 0_u8)
 
-      # Call plugin event
-      unless @connection.server.plugin_manager.call_block_place(player, x, y, z, block)
+      # Call plugin event (with nil-safety)
+      pm = @connection.server.plugin_manager
+      if pm && !pm.call_block_place(player, x, y, z, block)
         # Plugin cancelled the event - resend original block
         resend_block(x, y, z)
         return
@@ -385,17 +389,19 @@ module CrystalMC::Network
       broadcast_block_change(x, y, z, block.id, block.metadata)
     end
 
+    # src/network/packet_handler.cr - Update handle_command
     private def handle_command(command_str : String, player : World::Player)
       parts = command_str.split(' ')
       command = parts[0].downcase
       args = parts[1..]
 
-      # Try plugin commands first
-      if @connection.server.plugin_manager.handle_command(player, command, args)
+      # Try plugin commands first (with nil-safety)
+      pm = @connection.server.plugin_manager
+      if pm && pm.handle_command(player, command, args)
         return
       end
 
-      # Built-in commands
+      # Rest of built-in commands...
       case command
       when "help"
         player.send_message("§eAvailable commands:")
@@ -406,6 +412,7 @@ module CrystalMC::Network
         player.send_message("§7/gamemode <mode> - Change game mode")
         player.send_message("§7/give <item> [amount] - Give items")
         player.send_message("§7/stop - Stop the server")
+        # ... rest of commands remain the same
       when "list"
         player_list = @connection.server.players.keys.join(", ")
         count = @connection.server.player_count

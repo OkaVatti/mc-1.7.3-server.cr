@@ -17,8 +17,8 @@ module CrystalMC::Network::Protocol
       @x : Int32 = 0,
       @z : Int32 = 0,
       @ground_up_continuous : Bool = true,
-      @primary_bit_map : Int16 = -1_i16, # All sections present
-      @add_bit_map : Int16 = 0_i16,      # No additional data in Beta 1.7.3
+      @primary_bit_map : Int16 = -1_i16,
+      @add_bit_map : Int16 = 0_i16,
       @compressed_size : Int32 = 0,
       @compressed_data : Bytes = Bytes.empty
     )
@@ -40,7 +40,6 @@ module CrystalMC::Network::Protocol
     end
 
     def write(io : IO)
-      ProtocolHelper.write_ubyte(io, packet_id)
       ProtocolHelper.write_int(io, @x)
       ProtocolHelper.write_int(io, @z)
       ProtocolHelper.write_bool(io, @ground_up_continuous)
@@ -58,27 +57,21 @@ module CrystalMC::Network::Protocol
       MapChunkPacket.new(@x, @z, @ground_up_continuous, @primary_bit_map, @add_bit_map, @compressed_size, @compressed_data)
     end
 
-    # Helper to create packet from chunk
     def self.from_chunk(chunk : CrystalMC::World::Chunk) : MapChunkPacket
-      # Get uncompressed chunk data
       uncompressed = chunk.to_bytes
 
-      # Create a memory buffer to hold the compressed data
       compressed_io = IO::Memory.new
-
-      # Compress the data using Zlib::Deflate in a streaming manner
-      Compress::Deflate::Writer.open(compressed_io) do |deflate|
-        deflate.write(uncompressed)
+      Compress::Zlib::Writer.open(compressed_io) do |writer|
+        writer.write(uncompressed)
       end
 
-      # Get the compressed bytes from the memory buffer
       compressed_data = compressed_io.to_slice
 
       new(
         x: chunk.x * 16,
         z: chunk.z * 16,
         ground_up_continuous: true,
-        primary_bit_map: 0xFFFF.to_i16, # All 16 sections present
+        primary_bit_map: 0xFFFF.to_i16,
         add_bit_map: 0_i16,
         compressed_size: compressed_data.size,
         compressed_data: compressed_data

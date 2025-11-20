@@ -1,3 +1,4 @@
+# src/network/protocol/packets/login_packets.cr
 module CrystalMC::Network::Protocol
   class LoginPacket < Packet
     property entity_id : Int32
@@ -5,11 +6,11 @@ module CrystalMC::Network::Protocol
     property seed : Int64
     property dimension : Int8
 
-    def initialize(@entity_id : Int32, @username : String, @seed : Int64, @dimension : Int8)
+    def initialize(@entity_id : Int32 = 0, @username : String = "", @seed : Int64 = 0_i64, @dimension : Int8 = 0_i8)
     end
 
     def packet_id : UInt8
-      0x01_u8 # Login response packet ID
+      0x01_u8
     end
 
     def read(io : IO)
