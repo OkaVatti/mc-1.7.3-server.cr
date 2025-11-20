@@ -15,14 +15,15 @@ module CrystalMC::Network::Protocol
      3_u8 => "Beta 1.4",
      2_u8 => "Beta 1.3",
      1_u8 => "Beta 1.2",
-     0_u8 => "Pre-Beta or Invalid",
+     0_u8 => "Beta 1.0-1.1 or Custom Client",
   }
 
   def self.get_version_name(version : UInt8) : String
     PROTOCOL_VERSIONS[version]? || "Unknown (#{version})"
   end
 
-  def self.is_beta_1_7_3?(version : UInt8) : Bool
-    version == 14_u8
+  def self.is_supported_version?(version : UInt8) : Bool
+    # Accept version 0 (Beta 1.0-1.1) and 14 (Beta 1.7.3)
+    version == 0_u8 || version == 14_u8
   end
 end

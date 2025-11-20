@@ -10,10 +10,11 @@ module CrystalMC::Auth
       @@online_mode
     end
 
-    # Basic username validation for Beta 1.7.3
+    # More lenient username validation for older clients
     def self.validate_username(username : String) : Bool
       return false if username.empty?
       return false if username.size > 16
+      # Allow more characters for older clients
       return false unless username =~ /^[a-zA-Z0-9_]+$/
       true
     end

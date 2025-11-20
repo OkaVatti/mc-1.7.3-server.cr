@@ -2,7 +2,8 @@ require "./packet"
 require "./protocol_helper"
 
 module CrystalMC::Network::Protocol
-  abstract class PlayerLookMovePacket < Packet
+  # Remove 'abstract' to make this a concrete class
+  class PlayerLookMovePacket < Packet
     property x : Float64
     property y : Float64
     property stance : Float64
@@ -49,6 +50,11 @@ module CrystalMC::Network::Protocol
 
     def handle(handler : NetHandler)
       handler.handle_player_look_move(self)
+    end
+
+    # Add the required clone method
+    def clone : Packet
+      PlayerLookMovePacket.new(@x, @y, @stance, @z, @yaw, @pitch, @on_ground)
     end
   end
 end

@@ -2,14 +2,19 @@ require "./packet"
 require "./protocol_helper"
 require "./keep_alive_packet"
 require "./handshake_packet"
-require "./client_login_packet" # Add this
-require "./server_login_packet" # And this
+require "./client_login_packet"
+require "./server_login_packet"
 require "./chat_packet"
+require "./time_update_packet"
+require "./spawn_pos_packet"
+require "./health_update_packet"
+require "./respawn_packet"
 require "./player_pos_packet"
 require "./player_look_packet"
 require "./player_look_move_packet"
 require "./block_dig_packet"
 require "./block_place_packet"
+require "./block_change_packet"
 require "./kick_disconnect_packet"
 require "./pre_chunk_packet"
 require "./map_chunk_packet"
@@ -39,9 +44,13 @@ module CrystalMC::Network::Protocol::Packets
 
   # Register all packets for Minecraft Beta 1.7.3
   register_packet(0x00_u8, KeepAlivePacket)
-  register_packet(0x01_u8, ClientLoginPacket) # Client sends this after handshake
+  register_packet(0x01_u8, ClientLoginPacket)
   register_packet(0x02_u8, HandshakePacket)
   register_packet(0x03_u8, ChatPacket)
+  register_packet(0x04_u8, TimeUpdatePacket)
+  register_packet(0x06_u8, SpawnPositionPacket)
+  register_packet(0x08_u8, HealthUpdatePacket)
+  register_packet(0x09_u8, RespawnPacket)
   register_packet(0x0B_u8, PlayerPosPacket)
   register_packet(0x0C_u8, PlayerLookPacket)
   register_packet(0x0D_u8, PlayerLookMovePacket)
@@ -49,6 +58,7 @@ module CrystalMC::Network::Protocol::Packets
   register_packet(0x0F_u8, BlockPlacePacket)
   register_packet(0x32_u8, PreChunkPacket)
   register_packet(0x33_u8, MapChunkPacket)
+  register_packet(0x35_u8, BlockChangePacket)
   register_packet(0xFF_u8, KickDisconnectPacket)
 
   # Debug method to list all registered packets

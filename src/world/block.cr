@@ -3,7 +3,19 @@ module CrystalMC::World
     property id : UInt8
     property metadata : UInt8
 
-    def initialize(@id : UInt8 = 0_u8, @metadata : UInt8 = 0_u8)
+    def initialize(@id : UInt8, @metadata : UInt8)
+    end
+
+    def self.air
+      new(0_u8, 0_u8)
+    end
+
+    def self.stone
+      new(1_u8, 0_u8)
+    end
+
+    def self.water_stationary
+      new(8_u8, 0_u8) # Or whatever the correct block ID is for stationary water
     end
 
     def air? : Bool
@@ -31,9 +43,9 @@ module CrystalMC::World
     PLANKS           =  5_u8
     SAPLING          =  6_u8
     BEDROCK          =  7_u8
-    WATER            =  8_u8
+    WATER_FLOWING    =  8_u8
     WATER_STATIONARY =  9_u8
-    LAVA             = 10_u8
+    LAVA_FLOWING     = 10_u8
     LAVA_STATIONARY  = 11_u8
     SAND             = 12_u8
     GRAVEL           = 13_u8

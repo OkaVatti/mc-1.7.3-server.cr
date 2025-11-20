@@ -1,51 +1,110 @@
-require "./protocol_versions" # Add this require
+require "./protocol_versions"
 
 module CrystalMC::Network::Protocol
   class NetHandler
     def initialize(@connection : Connection)
     end
 
-    def handle_handshake(packet : HandshakePacket)
-      version_name = Protocol.get_version_name(packet.protocol_version)
-      puts "🤝 Handshake received: #{version_name}, user='#{packet.username}', host='#{packet.server_host}', port=#{packet.server_port}"
+    private def send_beta_1_7_3_login_response(username : String)
+      entity_id = @connection.server.allocate_entity_id
 
-      # Check if this is a valid Beta 1.7.3 handshake
-      if packet.valid_for_beta_1_7_3?
-        handle_valid_beta_1_7_3_handshake(packet)
-      else
-        handle_invalid_handshake(packet, version_name)
-      end
-    end
+      # Create player entity
+      player = World::Player.new(@connection.server.world, entity_id, username, @connection)
+      @connection.player = player
+      @connection.server.add_player(player)
 
-    private def handle_valid_beta_1_7_3_handshake(packet : HandshakePacket)
-      # Validate username
-      unless Auth::Authenticator.validate_username(packet.username)
-        @connection.send_kick("Invalid username: '#{packet.username}'")
-        return
-      end
-
-      # Store username for authentication
-      @connection.username = packet.username
-
-      puts "✅ Valid Beta 1.7.3 handshake from #{packet.username}, sending login response"
+      puts "Player #{username} logged in (entity ID: #{entity_id})"
 
       # Send login response
-      send_login_response(packet.username)
+      response = Protocol::LoginPacket.new(
+        entity_id: entity_id,
+        username: username,
+        seed: @connection.server.world.seed,
+        dimension: 0_i8
+      )
+      @connection.send_packet(response)
+
+      # Send all the necessary Beta 1.7.3 packets
+      send_spawn_position(@connection.server.world.spawn_x, @connection.server.world.spawn_y, @connection.server.world.spawn_z)
+      send_time_update
+      send_spawn_chunks(@connection.server.world.spawn_x, @connection.server.world.spawn_z)
+
+      # Send player position
+      player.set_position(@connection.server.world.spawn_x.to_f64 + 0.5, @connection.server.world.spawn_y.to_f64, @connection.server.world.spawn_z.to_f64 + 0.5)
+      send_player_spawn(player.x, player.y, player.z)
+
+      # Send health
+      send_health_update(player)
+
+      # Broadcast join message (except to the joining player)
+      @connection.server.broadcast_except("§e#{username} joined the game", username)
+
+      puts "📤 Sent Beta 1.7.3 login response to #{username}"
     end
 
-    private def handle_invalid_handshake(packet : HandshakePacket, version_name : String)
-      if packet.protocol_version == 0
-        puts "❌ Client sent protocol version 0 - likely using wrong Minecraft version"
-        @connection.send_kick("Invalid protocol version. Please use Minecraft Beta 1.7.3.")
-      elsif packet.protocol_version != 14
-        puts "❌ Wrong protocol version: #{packet.protocol_version} (#{version_name})"
-        @connection.send_kick("Unsupported protocol version #{packet.protocol_version} (#{version_name}). This server is for Minecraft Beta 1.7.3 (protocol 14).")
-      else
-        puts "❌ Incomplete handshake - malformed packet"
-        @connection.send_kick("Invalid handshake packet. Please use Minecraft Beta 1.7.3.")
+    private def send_spawn_position(x : Int32, y : Int32, z : Int32)
+      spawn_packet = Protocol::SpawnPositionPacket.new(x, y, z)
+      @connection.send_packet(spawn_packet)
+    end
+
+    private def send_time_update
+      time_packet = Protocol::TimeUpdatePacket.new(@connection.server.world.time)
+      @connection.send_packet(time_packet)
+    end
+
+    private def send_player_spawn(x : Float64, y : Float64, z : Float64)
+      pos_packet = Protocol::PlayerLookMovePacket.new(
+        x: x,
+        y: y,
+        stance: y + 1.62,
+        z: z,
+        yaw: 0.0_f32,
+        pitch: 0.0_f32,
+        on_ground: true
+      )
+      @connection.send_packet(pos_packet)
+    end
+
+    private def send_health_update(player : World::Player)
+      health_packet = Protocol::HealthUpdatePacket.new(player.health.to_i16)
+      @connection.send_packet(health_packet)
+    end
+
+    private def send_spawn_chunks(spawn_x : Int32, spawn_z : Int32)
+      chunk_x = spawn_x // 16
+      chunk_z = spawn_z // 16
+
+      radius = 5 # Send 11x11 chunks around spawn
+
+      (-radius..radius).each do |dx|
+        (-radius..radius).each do |dz|
+          cx = chunk_x + dx
+          cz = chunk_z + dz
+
+          # Send pre-chunk packet (prepare client for chunk data)
+          pre_chunk = Protocol::PreChunkPacket.new(cx, cz, true)
+          @connection.send_packet(pre_chunk)
+
+          # Get or generate chunk
+          chunk = @connection.server.world.get_chunk(cx, cz)
+          next unless chunk
+
+          # Send chunk data
+          chunk_packet = Protocol::MapChunkPacket.from_chunk(chunk)
+          @connection.send_packet(chunk_packet)
+        end
       end
+
+      puts "Sent #{(radius * 2 + 1) ** 2} chunks to #{@connection.username}"
     end
 
+    # Public entrypoint used by packets (e.g. HandshakePacket#handle)
+    def handle_handshake(packet : Protocol::HandshakePacket)
+      # Use the packet_handler which is now guaranteed to be initialized
+      @connection.packet_handler.handle_handshake(packet)
+    end
+
+    # Existing public handlers (login, keep-alive, chat, etc.)
     def handle_login_request(packet : ClientLoginPacket)
       puts "🔐 Login request from: #{packet.username} (entity: #{packet.entity_id}, mode: #{packet.game_mode})"
 
@@ -117,9 +176,53 @@ module CrystalMC::Network::Protocol
       # Handle map chunk (chunk data)
     end
 
-    private def send_login_response(username : String)
+    private def handle_beta_1_0_1_1_handshake(packet : HandshakePacket)
+      # Validate username
+      unless Auth::Authenticator.validate_username(packet.username)
+        @connection.send_kick("Invalid username: '#{packet.username}'")
+        return
+      end
+
+      # Beta 1.0-1.1 handshake: store username and proceed with a compatible login response
+      @connection.username = packet.username
+      puts "✅ Beta 1.0-1.1 handshake accepted for #{@connection.username}"
+
+      send_login_response(packet.username, packet.protocol_version)
+    end
+
+    private def handle_valid_beta_1_7_3_handshake(packet : HandshakePacket)
+      # Validate username
+      unless Auth::Authenticator.validate_username(packet.username)
+        @connection.send_kick("Invalid username: '#{packet.username}'")
+        return
+      end
+
+      # Store username for authentication
+      @connection.username = packet.username
+
+      puts "✅ Valid Beta 1.7.3 handshake from #{packet.username}, sending login response"
+
+      # Send login response (pass protocol for any protocol-specific variance)
+      send_login_response(packet.username, packet.protocol_version)
+    end
+
+    private def handle_invalid_handshake(packet : HandshakePacket, version_name : String)
+      if packet.protocol_version == 0
+        puts "❌ Client sent protocol version 0 - likely using wrong Minecraft version"
+        @connection.send_kick("Invalid protocol version. Please use Minecraft Beta 1.7.3.")
+      elsif packet.protocol_version != 14
+        puts "❌ Wrong protocol version: #{packet.protocol_version} (#{version_name})"
+        @connection.send_kick("Unsupported protocol version #{packet.protocol_version} (#{version_name}). This server is for Minecraft Beta 1.7.3 (protocol 14).")
+      else
+        puts "❌ Incomplete handshake - malformed packet"
+        @connection.send_kick("Invalid handshake packet. Please use Minecraft Beta 1.7.3.")
+      end
+    end
+
+    private def send_login_response(username : String, protocol_version : Int32 = 14)
       # Create and send a login response packet
       login_packet = ServerLoginPacket.new
+      # Allocate an entity id for the player
       login_packet.entity_id = allocate_entity_id
       login_packet.username = username
       login_packet.level_type = "default"
@@ -128,6 +231,14 @@ module CrystalMC::Network::Protocol
       login_packet.difficulty = 0 # Peaceful
       login_packet.world_height = 128
       login_packet.max_players = 20
+
+      # Adjust response behavior based on client protocol if required
+      if protocol_version == 0
+        puts "📤 Sending Beta 1.0-1.1 compatible login response to #{username}"
+        # Keep any special compatibility tweaks here
+      else
+        puts "📤 Sending Beta 1.7.3 login response to #{username}"
+      end
 
       @connection.send_packet(login_packet)
       puts "📤 Sent server login response to #{username}"

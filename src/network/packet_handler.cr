@@ -6,9 +6,30 @@ module CrystalMC::Network
     end
 
     def handle_handshake(packet : Protocol::HandshakePacket)
-      # Respond with handshake
-      response = Protocol::HandshakePacket.new("-") # "-" means no authentication
-      @connection.send_packet(response)
+      puts "🖐 Received handshake: protocol=#{packet.protocol_version}, username='#{packet.username}', host='#{packet.server_host}', port=#{packet.server_port}"
+      puts "DEBUG: handle_handshake called in #{__FILE__}:#{__LINE__}"
+
+      if packet.is_beta_1_7_3_legacy? || packet.valid_for_beta_1_7_3?
+        puts "✅ Beta 1.7.3 handshake accepted for #{packet.username}"
+        puts "DEBUG: About to call send_beta_1_7_3_login_response"
+
+        # Always use Beta 1.7.3 protocol (version 14)
+        @connection.protocol_version = 14
+        @connection.username = packet.username
+        @connection.state = :login
+
+        # Send Beta 1.7.3 login response
+        send_beta_1_7_3_login_response(packet.username)
+      else
+        puts "❌ Unsupported protocol version: #{packet.protocol_version}"
+        disconnect("Unsupported protocol version")
+        return
+      end
+    end
+
+    # Add this disconnect method
+    private def disconnect(reason : String)
+      @connection.disconnect(reason)
     end
 
     def handle_login(packet : Protocol::LoginPacket)
@@ -58,6 +79,57 @@ module CrystalMC::Network
       @connection.server.broadcast("§e#{username} joined the game")
     end
 
+    # Remove any old Beta 1.0-1.1 response methods and replace with:
+    private def send_beta_1_7_3_login_response(username : String)
+      entity_id = @connection.server.allocate_entity_id
+
+      # Create player entity
+      player = World::Player.new(@connection.server.world, entity_id, username, @connection)
+      @connection.player = player
+      @connection.server.add_player(player)
+
+      puts "Player #{username} logged in (entity ID: #{entity_id})"
+
+      # Use ServerLoginPacket with all required fields including seed
+      response = Protocol::ServerLoginPacket.new(
+        entity_id: entity_id,
+        username: username,
+        seed: @connection.server.world.seed, # Add the world seed
+        level_type: "default",
+        game_mode: 0,
+        dimension: 0,
+        difficulty: 0_u8,
+        world_height: 128_u8,
+        max_players: @connection.server.max_players.to_u8
+      )
+      @connection.send_packet(response)
+      puts "📤 Sent Beta 1.7.3 LOGIN response to #{username}"
+
+      # Mark as logged in
+      @connection.logged_in = true
+
+      # Send all the necessary Beta 1.7.3 packets
+      send_spawn_position(@connection.server.world.spawn_x, @connection.server.world.spawn_y, @connection.server.world.spawn_z)
+      send_time_update
+      send_spawn_chunks(@connection.server.world.spawn_x, @connection.server.world.spawn_z)
+
+      player_chunk_x = (player.x / 16).to_i32
+      player_chunk_z = (player.z / 16).to_i32
+      send_initial_chunks(player_chunk_x, player_chunk_z, 5) # 5 chunk radius
+
+      # Send player position
+      player.set_position(@connection.server.world.spawn_x.to_f64 + 0.5, @connection.server.world.spawn_y.to_f64, @connection.server.world.spawn_z.to_f64 + 0.5)
+      send_player_spawn(player.x, player.y, player.z)
+
+      # Send health
+      send_health_update(player)
+
+      # Broadcast join message (except to the joining player)
+      @connection.server.broadcast_except("§e#{username} joined the game", username)
+
+      puts "✅ Completed Beta 1.7.3 login sequence for #{username}"
+    end
+
     def handle_chat(packet : Protocol::ChatPacket)
       username = @connection.username
       return unless username
@@ -102,28 +174,9 @@ module CrystalMC::Network
       puts "#{@connection.username} placing block at #{packet.x}, #{packet.y}, #{packet.z}"
     end
 
-    private def send_spawn_position(x : Int32, y : Int32, z : Int32)
-      io = IO::Memory.new
-      Protocol::ProtocolHelper.write_ubyte(io, 0x06_u8) # Spawn position packet
-      Protocol::ProtocolHelper.write_int(io, x)
-      Protocol::ProtocolHelper.write_int(io, y)
-      Protocol::ProtocolHelper.write_int(io, z)
-
-      @connection.socket.write(io.to_slice)
-      @connection.socket.flush
-    end
-
-    private def send_player_spawn(x : Float64, y : Float64, z : Float64)
-      pos_packet = Protocol::PlayerLookMovePacket.new(
-        x: x,
-        y: y,
-        stance: y + 1.62,
-        z: z,
-        yaw: 0.0_f32,
-        pitch: 0.0_f32,
-        on_ground: true
-      )
-      @connection.send_packet(pos_packet)
+    private def send_time_update
+      time_packet = Protocol::TimeUpdatePacket.new(@connection.server.world.time)
+      @connection.send_packet(time_packet)
     end
 
     private def send_spawn_chunks(spawn_x : Int32, spawn_z : Int32)
@@ -152,6 +205,29 @@ module CrystalMC::Network
       end
 
       puts "Sent #{(radius * 2 + 1) ** 2} chunks to #{@connection.username}"
+    end
+
+    private def send_spawn_position(x : Int32, y : Int32, z : Int32)
+      spawn_packet = Protocol::SpawnPositionPacket.new(x, y, z)
+      @connection.send_packet(spawn_packet)
+    end
+
+    private def send_player_spawn(x : Float64, y : Float64, z : Float64)
+      pos_packet = Protocol::PlayerLookMovePacket.new(
+        x: x,
+        y: y,
+        stance: y + 1.62,
+        z: z,
+        yaw: 0.0_f32,
+        pitch: 0.0_f32,
+        on_ground: true
+      )
+      @connection.send_packet(pos_packet)
+    end
+
+    private def send_health_update(player : World::Player)
+      health_packet = Protocol::HealthUpdatePacket.new(player.health.to_i16)
+      @connection.send_packet(health_packet)
     end
 
     private def handle_command(command : String)
@@ -188,6 +264,10 @@ module CrystalMC::Network
       else
         @connection.send_chat_message("§cUnknown command: #{cmd}")
       end
+    end
+
+    private def disconnect(reason : String)
+      @connection.disconnect(reason)
     end
   end
 end

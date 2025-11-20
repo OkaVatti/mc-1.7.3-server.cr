@@ -1,171 +1,158 @@
-require "./block"
-require "../crystal_mc/constants"
-
 module CrystalMC::World
   class Chunk
     SECTION_SIZE   =  16
     SECTION_HEIGHT = 128
+    SECTION_COUNT  =   8 # 128 / 16 = 8 sections
 
     property x : Int32
     property z : Int32
-    property blocks : Bytes
-    property metadata : Bytes
-    property light_block : Bytes
-    property light_sky : Bytes
-    property biome_data : Bytes
+    @blocks : Array(Array(Array(Block)))      # [x][z][y]
+    @biomes : Array(Array(UInt8))             # [x][z]
+    @sky_light : Array(Array(Array(UInt8)))   # [x][z][y]
+    @block_light : Array(Array(Array(UInt8))) # [x][z][y]
 
     def initialize(@x : Int32, @z : Int32)
-      # Initialize arrays
-      # 16x128x16 = 32,768 blocks
-      @blocks = Bytes.new(SECTION_SIZE * SECTION_HEIGHT * SECTION_SIZE, 0_u8)
-
-      # Metadata: 4 bits per block = half the size
-      @metadata = Bytes.new((SECTION_SIZE * SECTION_HEIGHT * SECTION_SIZE) // 2, 0_u8)
-
-      # Light data: 4 bits per block
-      @light_block = Bytes.new((SECTION_SIZE * SECTION_HEIGHT * SECTION_SIZE) // 2, 0_u8)
-      @light_sky = Bytes.new((SECTION_SIZE * SECTION_HEIGHT * SECTION_SIZE) // 2, 0xF_u8) # Full skylight by default
-
-      # Biome data: 16x16 = 256 bytes
-      @biome_data = Bytes.new(SECTION_SIZE * SECTION_SIZE, 1_u8) # Default to plains biome
+      @blocks = Array.new(SECTION_SIZE) do
+        Array.new(SECTION_SIZE) do
+          Array.new(SECTION_HEIGHT) { Block.air }
+        end
+      end
+      @biomes = Array.new(SECTION_SIZE) { Array.new(SECTION_SIZE) { 1_u8 } } # Default to plains
+      @sky_light = Array.new(SECTION_SIZE) do
+        Array.new(SECTION_SIZE) do
+          Array.new(SECTION_HEIGHT) { 0_u8 }
+        end
+      end
+      @block_light = Array.new(SECTION_SIZE) do
+        Array.new(SECTION_SIZE) do
+          Array.new(SECTION_HEIGHT) { 0_u8 }
+        end
+      end
     end
 
-    # Get block at local coordinates (0-15, 0-127, 0-15)
-    def get_block(x : Int32, y : Int32, z : Int32) : Block
-      return Block.air if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      Block.new(@blocks[index], get_metadata(x, y, z))
-    end
-
-    # Set block at local coordinates
     def set_block(x : Int32, y : Int32, z : Int32, block : Block)
-      return if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      @blocks[index] = block.id
-      set_metadata(x, y, z, block.metadata)
+      return if x < 0 || x >= SECTION_SIZE
+      return if y < 0 || y >= SECTION_HEIGHT
+      return if z < 0 || z >= SECTION_SIZE
+      @blocks[x][z][y] = block
     end
 
-    # Get block metadata (4 bits per block)
-    def get_metadata(x : Int32, y : Int32, z : Int32) : UInt8
-      return 0_u8 if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      byte_index = index // 2
-
-      if index.odd?
-        (@metadata[byte_index] >> 4) & 0x0F
-      else
-        @metadata[byte_index] & 0x0F
-      end
+    def get_block(x : Int32, y : Int32, z : Int32) : Block
+      return Block.air if x < 0 || x >= SECTION_SIZE
+      return Block.air if y < 0 || y >= SECTION_HEIGHT
+      return Block.air if z < 0 || z >= SECTION_SIZE
+      @blocks[x][z][y]
     end
 
-    # Set block metadata
-    def set_metadata(x : Int32, y : Int32, z : Int32, value : UInt8)
-      return if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      byte_index = index // 2
-
-      if index.odd?
-        @metadata[byte_index] = (@metadata[byte_index] & 0x0F) | ((value & 0x0F) << 4)
-      else
-        @metadata[byte_index] = (@metadata[byte_index] & 0xF0) | (value & 0x0F)
-      end
-    end
-
-    # Get block light level
-    def get_block_light(x : Int32, y : Int32, z : Int32) : UInt8
-      return 0_u8 if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      byte_index = index // 2
-
-      if index.odd?
-        (@light_block[byte_index] >> 4) & 0x0F
-      else
-        @light_block[byte_index] & 0x0F
-      end
-    end
-
-    # Set block light level
-    def set_block_light(x : Int32, y : Int32, z : Int32, value : UInt8)
-      return if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      byte_index = index // 2
-
-      if index.odd?
-        @light_block[byte_index] = (@light_block[byte_index] & 0x0F) | ((value & 0x0F) << 4)
-      else
-        @light_block[byte_index] = (@light_block[byte_index] & 0xF0) | (value & 0x0F)
-      end
-    end
-
-    # Get sky light level
-    def get_sky_light(x : Int32, y : Int32, z : Int32) : UInt8
-      return 0_u8 if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      byte_index = index // 2
-
-      if index.odd?
-        (@light_sky[byte_index] >> 4) & 0x0F
-      else
-        @light_sky[byte_index] & 0x0F
-      end
-    end
-
-    # Set sky light level
-    def set_sky_light(x : Int32, y : Int32, z : Int32, value : UInt8)
-      return if out_of_bounds?(x, y, z)
-
-      index = get_block_index(x, y, z)
-      byte_index = index // 2
-
-      if index.odd?
-        @light_sky[byte_index] = (@light_sky[byte_index] & 0x0F) | ((value & 0x0F) << 4)
-      else
-        @light_sky[byte_index] = (@light_sky[byte_index] & 0xF0) | (value & 0x0F)
-      end
-    end
-
-    # Get biome at x, z coordinates
-    def get_biome(x : Int32, z : Int32) : UInt8
-      return 1_u8 if x < 0 || x >= SECTION_SIZE || z < 0 || z >= SECTION_SIZE
-      @biome_data[z * SECTION_SIZE + x]
-    end
-
-    # Set biome
     def set_biome(x : Int32, z : Int32, biome : UInt8)
-      return if x < 0 || x >= SECTION_SIZE || z < 0 || z >= SECTION_SIZE
-      @biome_data[z * SECTION_SIZE + x] = biome
+      return if x < 0 || x >= SECTION_SIZE
+      return if z < 0 || z >= SECTION_SIZE
+      @biomes[x][z] = biome
     end
 
-    # Convert to compressed chunk data for network transmission
+    def set_sky_light(x : Int32, y : Int32, z : Int32, light : UInt8)
+      return if x < 0 || x >= SECTION_SIZE
+      return if y < 0 || y >= SECTION_HEIGHT
+      return if z < 0 || z >= SECTION_SIZE
+      @sky_light[x][z][y] = light
+    end
+
+    def set_block_light(x : Int32, y : Int32, z : Int32, light : UInt8)
+      return if x < 0 || x >= SECTION_SIZE
+      return if y < 0 || y >= SECTION_HEIGHT
+      return if z < 0 || z >= SECTION_SIZE
+      @block_light[x][z][y] = light
+    end
+
+    # Convert chunk to byte array for network transmission
     def to_bytes : Bytes
-      # Calculate size: blocks + metadata + light_block + light_sky + biome
-      size = @blocks.size + @metadata.size + @light_block.size + @light_sky.size + @biome_data.size
+      # In Beta 1.7.3, chunk data consists of:
+      # - Block IDs (32768 bytes)
+      # - Metadata (16384 bytes - 4 bits per block)
+      # - Block light (16384 bytes - 4 bits per block)
+      # - Sky light (16384 bytes - 4 bits per block)
+      # - Biome data (256 bytes)
+      # Total: 81920 bytes
 
-      io = IO::Memory.new(size)
-      io.write(@blocks)
-      io.write(@metadata)
-      io.write(@light_block)
-      io.write(@light_sky)
-      io.write(@biome_data)
+      data = Bytes.new(81920)
+      offset = 0
 
-      io.to_slice
-    end
+      # 1. Block IDs (32768 bytes)
+      (0...SECTION_HEIGHT).each do |y|
+        (0...SECTION_SIZE).each do |z|
+          (0...SECTION_SIZE).each do |x|
+            block = get_block(x, y, z)
+            data[offset] = block.id
+            offset += 1
+          end
+        end
+      end
 
-    private def get_block_index(x : Int32, y : Int32, z : Int32) : Int32
-      (y * SECTION_SIZE * SECTION_SIZE) + (z * SECTION_SIZE) + x
-    end
+      # 2. Metadata (16384 bytes - packed as 4 bits per block)
+      (0...SECTION_HEIGHT).each do |y|
+        (0...SECTION_SIZE).each do |z|
+          (0...SECTION_SIZE).each do |x|
+            block_index = y * 256 + z * 16 + x
+            byte_index = 32768 + block_index // 2
+            block = get_block(x, y, z)
 
-    private def out_of_bounds?(x : Int32, y : Int32, z : Int32) : Bool
-      x < 0 || x >= SECTION_SIZE ||
-        y < 0 || y >= SECTION_HEIGHT ||
-        z < 0 || z >= SECTION_SIZE
+            if block_index.even?
+              # Even index: metadata in lower 4 bits
+              data[byte_index] = (data[byte_index] & 0xF0) | (block.metadata & 0x0F)
+            else
+              # Odd index: metadata in upper 4 bits
+              data[byte_index] = (data[byte_index] & 0x0F) | ((block.metadata & 0x0F) << 4)
+            end
+          end
+        end
+      end
+
+      # 3. Block light (same structure as metadata)
+      offset = 32768 + 16384 # Start of block light
+      (0...SECTION_HEIGHT).each do |y|
+        (0...SECTION_SIZE).each do |z|
+          (0...SECTION_SIZE).each do |x|
+            block_index = y * 256 + z * 16 + x
+            byte_index = offset + block_index // 2
+            light = @block_light[x][z][y]
+
+            if block_index.even?
+              data[byte_index] = (data[byte_index] & 0xF0) | (light & 0x0F)
+            else
+              data[byte_index] = (data[byte_index] & 0x0F) | ((light & 0x0F) << 4)
+            end
+          end
+        end
+      end
+
+      # 4. Sky light (same structure as metadata)
+      offset = 32768 + 16384 + 16384 # Start of sky light
+      (0...SECTION_HEIGHT).each do |y|
+        (0...SECTION_SIZE).each do |z|
+          (0...SECTION_SIZE).each do |x|
+            block_index = y * 256 + z * 16 + x
+            byte_index = offset + block_index // 2
+            light = @sky_light[x][z][y]
+
+            if block_index.even?
+              data[byte_index] = (data[byte_index] & 0xF0) | (light & 0x0F)
+            else
+              data[byte_index] = (data[byte_index] & 0x0F) | ((light & 0x0F) << 4)
+            end
+          end
+        end
+      end
+
+      # 5. Biome data (256 bytes)
+      offset = 32768 + 16384 + 16384 + 16384 # Start of biome data
+      (0...SECTION_SIZE).each do |z|
+        (0...SECTION_SIZE).each do |x|
+          data[offset] = @biomes[x][z]
+          offset += 1
+        end
+      end
+
+      data
     end
   end
 end

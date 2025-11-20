@@ -5,11 +5,16 @@ module CrystalMC::Network::Protocol
     # Read a Minecraft string (UTF-16BE with length prefix)
     def self.read_string(io : IO) : String
       length = read_short(io)
+      return "" if length <= 0
+
       bytes = Bytes.new(length * 2)
       io.read_fully(bytes)
 
       # Convert UTF-16BE to UTF-8
       String.new(bytes, "UTF-16BE")
+    rescue ex
+      puts "Error reading string: #{ex.message}"
+      ""
     end
 
     # Write a Minecraft string

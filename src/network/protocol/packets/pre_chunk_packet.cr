@@ -1,12 +1,11 @@
-require "./packet"
-
+# src/network/protocol/packets/pre_chunk_packet.cr
 module CrystalMC::Network::Protocol
   class PreChunkPacket < Packet
     property x : Int32
     property z : Int32
-    property mode : Bool # true = load, false = unload
+    property mode : Bool
 
-    def initialize(@x : Int32 = 0, @z : Int32 = 0, @mode : Bool = true)
+    def initialize(@x : Int32, @z : Int32, @mode : Bool)
     end
 
     def packet_id : UInt8
@@ -14,19 +13,20 @@ module CrystalMC::Network::Protocol
     end
 
     def read(io : IO)
-      @x = read_int(io)
-      @z = read_int(io)
-      @mode = read_bool(io)
+      @x = ProtocolHelper.read_int(io)
+      @z = ProtocolHelper.read_int(io)
+      @mode = ProtocolHelper.read_bool(io)
     end
 
     def write(io : IO)
-      write_int(io, @x)
-      write_int(io, @z)
-      write_bool(io, @mode)
+      ProtocolHelper.write_ubyte(io, packet_id)
+      ProtocolHelper.write_int(io, @x)
+      ProtocolHelper.write_int(io, @z)
+      ProtocolHelper.write_bool(io, @mode)
     end
 
     def handle(handler : NetHandler)
-      handler.handle_pre_chunk(self)
+      # Client doesn't send this packet
     end
 
     def clone : Packet

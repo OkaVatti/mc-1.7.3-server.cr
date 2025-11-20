@@ -1,0 +1,17 @@
+---
+server_name: CrystalMC Server
+server_port: 25565
+server_ip: 0.0.0.0
+max_players: 20
+motd: A Minecraft Beta 1.7.3 Server
+view_distance: 10
+online_mode: false
+difficulty: 1
+gamemode: 0
+pvp: true
+allow_flight: false
+world_name: world
+spawn_protection: 16
+max_build_height: 128
+enable_command_blocks: false
+auto_save_interval: 6000
