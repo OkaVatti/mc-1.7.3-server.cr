@@ -2,6 +2,7 @@ require "./chunk"
 require "./block"
 require "./perlin_noise"
 require "../crystal_mc/constants"
+require "random"
 
 module CrystalMC::World
   class ChunkGenerator
@@ -16,9 +17,10 @@ module CrystalMC::World
     STONE_END     =  5
     DIRT_DEPTH    =  3
 
-    def initialize(@seed : Int32)
-      # Simple initialization - PerlinNoise should never fail now
+    def initialize(seed : Int32)
+      @seed = seed
       @noise = PerlinNoise.new(@seed)
+      @random = Random.new(@seed.to_i64.abs.to_u64)
     end
 
     def generate(chunk_x : Int32, chunk_z : Int32) : Chunk
