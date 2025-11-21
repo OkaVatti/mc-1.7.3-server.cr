@@ -31,8 +31,9 @@ module CrystalMC
       @players = {} of String => World::Player
       @next_entity_id = 1
 
-      # Initialize world first (doesn't depend on server)
-      @world = World::World.new("world")
+      # Safe world initialization - pass the name directly and use safe seed
+      world_seed = generate_safe_world_seed
+      @world = World::World.new("world", world_seed)
 
       # Set offline mode for now (static/class method, doesn't need server instance)
       Auth::Authenticator.online_mode = false
@@ -40,11 +41,21 @@ module CrystalMC
       # Initialize plugin_manager LAST. If construction fails, leave nil.
       begin
         @plugin_manager = Plugin::PluginManager.new(self)
-      rescue
+      rescue ex
+        puts "⚠️  Plugin manager initialization failed: #{ex.message}"
         @plugin_manager = nil
       end
     end
 
+    # Add the missing method
+    private def generate_safe_world_seed : Int64
+      # Generate a seed safely within Int32 bounds for compatibility
+      seed = Random::Secure.rand(Int32::MAX - 1000).to_i64
+      puts "🔧 Generated safe world seed: #{seed}"
+      seed
+    end
+
+    # Rest of your Server class methods remain the same...
     def plugin_manager : Plugin::PluginManager?
       @plugin_manager
     end

@@ -1,21 +1,18 @@
 require "./entity"
 require "../network/connection"
+require "../network/protocol/packets"
 
 module CrystalMC::World
   class Player < Entity
     property username : String
     property connection : Network::Connection
-    property x : Float64 = 0.0
-    property y : Float64 = 0.0
-    property z : Float64 = 0.0
-    property yaw : Float32 = 0.0
-    property pitch : Float32 = 0.0
     property health : Int32 = 20
     property food : Int32 = 20
     property gamemode : Symbol = :survival
     property on_ground : Bool = true
     property op : Bool = false
     property inventory : Inventory
+    property selected_slot : Int32 = 0
     property experience : Int32 = 0
     property level : Int32 = 0
 
@@ -24,17 +21,20 @@ module CrystalMC::World
 
     def initialize(@world : World, @entity_id : Int32, @username : String, @connection : Network::Connection)
       @inventory = Inventory.new
-      @health = 20
-      @food = 20
-      @gamemode = :survival
       @x = @world.spawn_x.to_f64 + 0.5
       @y = @world.spawn_y.to_f64
       @z = @world.spawn_z.to_f64 + 0.5
+      @yaw = 0.0_f32
+      @pitch = 0.0_f32
+      @on_ground = true
+
+      # Give starter items in survival mode
+      give_starter_items if @gamemode == :survival
     end
 
     def tick
-      # Handle health regeneration and hunger
       update_health_and_hunger
+      update_chunk_visibility
     end
 
     def op? : Bool
@@ -94,6 +94,88 @@ module CrystalMC::World
       @inventory.add_item(item_id, amount, damage)
     end
 
+    # Check if player has item
+    def has_item?(item_id : Int16, amount : Int8 = 1) : Bool
+      @inventory.has_item(item_id, amount)
+    end
+
+    # Get player's current chunk coordinates
+    def chunk_x : Int32
+      (@x / 16).to_i32
+    end
+
+    def chunk_z : Int32
+      (@z / 16).to_i32
+    end
+
+    # Get block player is standing on
+    def standing_block_x : Int32
+      @x.floor.to_i32
+    end
+
+    def standing_block_y : Int32
+      (@y - 1).floor.to_i32
+    end
+
+    def standing_block_z : Int32
+      @z.floor.to_i32
+    end
+
+    # Get block player is looking at (simplified)
+    def targeted_block(distance : Float64 = 5.0) : Tuple(Int32, Int32, Int32)?
+      # Simple raycast - in reality this would be more complex
+      look_x = @x + Math.cos(@yaw) * distance
+      look_z = @z + Math.sin(@yaw) * distance
+      look_y = @y + Math.sin(@pitch) * distance
+
+      {look_x.floor.to_i32, look_y.floor.to_i32, look_z.floor.to_i32}
+    end
+
+    def to_s(io : IO)
+      io << "Player(#{@username}, #{@entity_id}, #{@x.round(2)}, #{@y.round(2)}, #{@z.round(2)})"
+    end
+
+    private def give_starter_items
+      @inventory.set_slot(0, ItemStack.new(Block::WOOD.to_i16, 16_i8))
+      @inventory.set_slot(1, ItemStack.new(Block::STONE.to_i16, 32_i8))
+      @inventory.set_slot(2, ItemStack.new(Block::DIRT.to_i16, 64_i8))
+      send_inventory_update
+    end
+
+    def send_inventory_update
+      # Send inventory packet to client
+      puts "🎒 Sent inventory update to #{@username}"
+    end
+
+    def get_selected_item : ItemStack?
+      @inventory.get_slot(@selected_slot)
+    end
+
+    def can_harvest_block(block_id : UInt8) : Bool
+      # Simple harvesting logic - in survival, need correct tool
+      @gamemode == :creative
+    end
+
+    private def update_chunk_visibility
+      # In a full implementation, we'd manage which chunks are visible
+      # based on player position and view distance
+      current_chunk_x = chunk_x
+      current_chunk_z = chunk_z
+
+      # For simplicity, assume a view distance of 4 chunks
+      view_distance = 4
+      (-view_distance..view_distance).each do |dx|
+        (-view_distance..view_distance).each do |dz|
+          chunk = @world.get_chunk(current_chunk_x + dx, current_chunk_z + dz)
+          if chunk
+            # In a real implementation, we'd send chunk data to player
+            # For now, just log it
+            puts "🌍 Player #{@username} can see chunk (#{chunk.x}, #{chunk.z})"
+          end
+        end
+      end
+    end
+
     private def update_health_and_hunger
       @regeneration_timer += 1
       @hunger_timer += 1
@@ -135,51 +217,10 @@ module CrystalMC::World
       health_packet = Network::Protocol::HealthUpdatePacket.new(@health.to_i16)
       @connection.send_packet(health_packet)
     end
-
-    # Check if player has item
-    def has_item?(item_id : Int16, amount : Int8 = 1) : Bool
-      @inventory.has_item(item_id, amount)
-    end
-
-    # Get player's current chunk coordinates
-    def chunk_x : Int32
-      (@x / 16).to_i32
-    end
-
-    def chunk_z : Int32
-      (@z / 16).to_i32
-    end
-
-    # Get block player is standing on
-    def standing_block_x : Int32
-      @x.floor.to_i32
-    end
-
-    def standing_block_y : Int32
-      (@y - 1).floor.to_i32
-    end
-
-    def standing_block_z : Int32
-      @z.floor.to_i32
-    end
-
-    # Get block player is looking at (simplified)
-    def targeted_block(distance : Float64 = 5.0) : Tuple(Int32, Int32, Int32)?
-      # Simple raycast - in reality this would be more complex
-      look_x = @x + Math.cos(@yaw) * distance
-      look_z = @z + Math.sin(@yaw) * distance
-      look_y = @y + Math.sin(@pitch) * distance
-
-      {look_x.floor.to_i32, look_y.floor.to_i32, look_z.floor.to_i32}
-    end
-
-    def to_s(io : IO)
-      io << "Player(#{@username}, #{@entity_id}, #{@x.round(2)}, #{@y.round(2)}, #{@z.round(2)})"
-    end
   end
 
   class Inventory
-    INVENTORY_SIZE = 45 # 36 main inventory + 9 hotbar
+    INVENTORY_SIZE = 36 # 27 main inventory + 9 hotbar
 
     property slots : Array(ItemStack?)
 
@@ -264,6 +305,11 @@ module CrystalMC::World
         count += slot.amount if slot && slot.item_id == item_id
       end
       count
+    end
+
+    def to_s(io : IO)
+      items = @slots.compact.map(&.to_s)
+      io << "Inventory[#{items.join(", ")}]"
     end
   end
 

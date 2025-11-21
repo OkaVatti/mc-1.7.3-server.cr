@@ -2,9 +2,11 @@ module CrystalMC::World
   class PerlinNoise
     @permutation : Array(Int32)
 
-    def initialize(seed : Int64 = 0)
-      random = Random.new(seed)
-      @permutation = (0..255).to_a.shuffle(random) * 2
+    def initialize(seed : Int32)
+      # Simple, guaranteed initialization with no rescue blocks
+      rng = Random.new(seed.to_i64.abs.to_u64)
+      p = (0..255).to_a.shuffle(random: rng)
+      @permutation = p + p
     end
 
     def noise(x : Float64, y : Float64, z : Float64) : Float64
@@ -14,14 +16,14 @@ module CrystalMC::World
       zi = z.floor.to_i & 255
 
       # Find relative x, y, z of point in cube
-      x -= x.floor
-      y -= y.floor
-      z -= z.floor
+      xf = x - x.floor
+      yf = y - y.floor
+      zf = z - z.floor
 
       # Compute fade curves for each of x, y, z
-      u = fade(x)
-      v = fade(y)
-      w = fade(z)
+      u = fade(xf)
+      v = fade(yf)
+      w = fade(zf)
 
       # Hash coordinates of the 8 cube corners
       a = @permutation[xi] + yi
@@ -31,17 +33,15 @@ module CrystalMC::World
       ba = @permutation[b] + zi
       bb = @permutation[b + 1] + zi
 
-      # Blend results from 8 corners
-      lerp(w,
-        lerp(v,
-          lerp(u, grad(@permutation[aa], x, y, z), grad(@permutation[ba], x - 1, y, z)),
-          lerp(u, grad(@permutation[ab], x, y - 1, z), grad(@permutation[bb], x - 1, y - 1, z))
-        ),
-        lerp(v,
-          lerp(u, grad(@permutation[aa + 1], x, y, z - 1), grad(@permutation[ba + 1], x - 1, y, z - 1)),
-          lerp(u, grad(@permutation[ab + 1], x, y - 1, z - 1), grad(@permutation[bb + 1], x - 1, y - 1, z - 1))
-        )
-      )
+      # Blend results from 8 corners of cube
+      lerp(w, lerp(v, lerp(u, grad(@permutation[aa], xf, yf, zf),
+        grad(@permutation[ba], xf - 1, yf, zf)),
+        lerp(u, grad(@permutation[ab], xf, yf - 1, zf),
+          grad(@permutation[bb], xf - 1, yf - 1, zf))),
+        lerp(v, lerp(u, grad(@permutation[aa + 1], xf, yf, zf - 1),
+          grad(@permutation[ba + 1], xf - 1, yf, zf - 1)),
+          lerp(u, grad(@permutation[ab + 1], xf, yf - 1, zf - 1),
+            grad(@permutation[bb + 1], xf - 1, yf - 1, zf - 1))))
     end
 
     def octave_noise(x : Float64, y : Float64, z : Float64, octaves : Int32, persistence : Float64 = 0.5) : Float64
@@ -72,7 +72,7 @@ module CrystalMC::World
       h = hash & 15
       u = h < 8 ? x : y
       v = h < 4 ? y : (h == 12 || h == 14 ? x : z)
-      (h & 1) == 0 ? u : -u + (h & 2) == 0 ? v : -v
+      ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v)
     end
   end
 end

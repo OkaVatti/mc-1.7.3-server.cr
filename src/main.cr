@@ -1,6 +1,8 @@
 require "./crystal_mc/crystal_mc"
 require "./crystal_mc/server"
 require "./config/server_config"
+require "./crystal_mc/constants"
+require "./crystal_mc/version"
 
 module CrystalMC
   PROTOCOL_VERSION = Constants::PROTOCOL_VERSION

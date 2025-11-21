@@ -1,4 +1,18 @@
 require "./protocol_versions"
+require "./packets/packet"
+require "./packets/handshake_packet"
+require "./packets/client_login_packet"
+require "./packets/keep_alive_packet"
+require "./packets/kick_disconnect_packet"
+require "./packets/chat_packet"
+require "./packets/player_pos_packet"
+require "./packets/player_look_packet"
+require "./packets/player_look_move_packet"
+require "./packets/block_dig_packet"
+require "./packets/block_place_packet"
+require "./packets/pre_chunk_packet"
+require "./packets/map_chunk_packet"
+require "./packets/block_change_packet"
 
 module CrystalMC::Network::Protocol
   class NetHandler
@@ -117,6 +131,8 @@ module CrystalMC::Network::Protocol
       world_y = packet.y.to_i32
       world_z = packet.z
 
+      puts "⛏️  Block dig at #{world_x}, #{world_y}, #{world_z} by #{player.username}"
+
       # Call plugin event
       cancelled = false
       @connection.server.plugin_manager.try do |pm|
@@ -124,15 +140,33 @@ module CrystalMC::Network::Protocol
       end
 
       unless cancelled
-        # Handle block breaking - set to air
+        # Get the block being broken
+        broken_block = @connection.server.world.get_block(world_x, world_y, world_z)
+
+        # Don't allow breaking bedrock
+        if broken_block.id == Block::BEDROCK
+          player.connection.send_chat_message("§cYou can't break bedrock!")
+          return
+        end
+
+        # Check if player can harvest this block
+        unless player.can_harvest_block(broken_block.id)
+          player.connection.send_chat_message("§cYou can't break this block with your current tool!")
+          return
+        end
+
+        # Set to air
         air_block = World::Block.air
         @connection.server.world.set_block(world_x, world_y, world_z, air_block)
 
-        # Broadcast block change
+        # Broadcast block change to all players in range
         block_change = BlockChangePacket.new(world_x, world_y.to_i8, world_z, 0, 0)
-        @connection.server.broadcast_packet(block_change, @connection.username)
+        broadcast_block_change(block_change, world_x, world_y, world_z)
 
-        puts "⛏️  Block broken at #{world_x}, #{world_y}, #{world_z}"
+        # Drop item if applicable
+        drop_block_item(broken_block, world_x, world_y, world_z, player)
+
+        puts "⛏️  Block broken at #{world_x}, #{world_y}, #{world_z} by #{player.username}"
       end
     end
 
@@ -144,36 +178,38 @@ module CrystalMC::Network::Protocol
       world_y = packet.y.to_i32
       world_z = packet.z
 
-      # Only place block if holding an item
-      if packet.item_id > 0
+      # Only place block if holding an item that can be placed
+      if packet.item_id > 0 && can_place_item(packet.item_id)
         block_type = packet.item_id.to_u8
 
         # Calculate placement position based on face
-        case packet.direction
-        when 0 then world_y -= 1 # Bottom
-        when 1 then world_y += 1 # Top
-        when 2 then world_z -= 1 # North
-        when 3 then world_z += 1 # South
-        when 4 then world_x -= 1 # West
-        when 5 then world_x += 1 # East
+        placement_x, placement_y, placement_z = calculate_placement_position(world_x, world_y, world_z, packet.direction)
+
+        # Check if placement position is valid
+        unless valid_placement_position(placement_x, placement_y, placement_z, player)
+          player.connection.send_chat_message("§cCannot place block here!")
+          return
         end
 
         # Call plugin event
         cancelled = false
         @connection.server.plugin_manager.try do |pm|
-          cancelled = !pm.call_block_place(player, world_x, world_y, world_z, block_type)
+          cancelled = !pm.call_block_place(player, placement_x, placement_y, placement_z, block_type)
         end
 
         unless cancelled
           # Create proper Block object and place it
           block = World::Block.new(block_type, 0_u8)
-          @connection.server.world.set_block(world_x, world_y, world_z, block)
+          @connection.server.world.set_block(placement_x, placement_y, placement_z, block)
 
-          # Broadcast block change
-          block_change = BlockChangePacket.new(world_x, world_y.to_i8, world_z, block_type, 0)
-          @connection.server.broadcast_packet(block_change, @connection.username)
+          # Broadcast block change to all players in range
+          block_change = BlockChangePacket.new(placement_x, placement_y.to_i8, placement_z, block_type, 0)
+          broadcast_block_change(block_change, placement_x, placement_y, placement_z)
 
-          puts "🧱 Block placed at #{world_x}, #{world_y}, #{world_z} (type: #{block_type})"
+          # Consume item from inventory
+          consume_placement_item(player, packet.item_id)
+
+          puts "🧱 Block placed at #{placement_x}, #{placement_y}, #{placement_z} (type: #{block_type}) by #{player.username}"
         end
       end
     end
@@ -186,6 +222,40 @@ module CrystalMC::Network::Protocol
     def handle_map_chunk(packet : MapChunkPacket)
       puts "🗺️  Player #{@connection.username} map chunk: #{packet.x}, #{packet.z}"
       # Client sent chunk data - we don't handle client-sent chunks in Beta 1.7.3
+    end
+
+    def handle_entity_action(packet : EntityActionPacket)
+      player = @connection.player
+      return unless player
+
+      case packet.action_id
+      when 1 # Crouch
+        puts "🧎 Player #{player.username} crouching"
+      when 2 # Uncrouch
+        puts "🧍 Player #{player.username} standing up"
+      when 3 # Leave bed
+        puts "🛏️  Player #{player.username} leaving bed"
+      else
+        puts "🎭 Player #{player.username} unknown action: #{packet.action_id}"
+      end
+    end
+
+    def handle_animation(packet : AnimationPacket)
+      player = @connection.player
+      return unless player
+
+      case packet.animation
+      when 1 # Swing arm
+        puts "👊 Player #{player.username} swinging arm"
+      when 2 # Damage animation
+        puts "💥 Player #{player.username} taking damage"
+      when 3 # Leave bed
+        puts "🛏️  Player #{player.username} leaving bed"
+      when 5 # Eat food
+        puts "🍎 Player #{player.username} eating"
+      else
+        puts "🎬 Player #{player.username} unknown animation: #{packet.animation}"
+      end
     end
 
     # Complete command handling system
@@ -234,6 +304,14 @@ module CrystalMC::Network::Protocol
         list_plugins(player)
       when "version", "about"
         show_version(player)
+      when "op"
+        op_player(player, args)
+      when "deop"
+        deop_player(player, args)
+      when "weather"
+        handle_weather_command(player, args)
+      when "difficulty"
+        handle_difficulty_command(player, args)
       else
         player.connection.send_chat_message("§cUnknown command: /#{cmd}")
         player.connection.send_chat_message("§cType /help for available commands.")
@@ -257,6 +335,10 @@ module CrystalMC::Network::Protocol
       if player.op?
         player.connection.send_chat_message("§4/stop §7- Stop the server")
         player.connection.send_chat_message("§4/kill §7- Kill yourself")
+        player.connection.send_chat_message("§4/op <player> §7- Grant operator status")
+        player.connection.send_chat_message("§4/deop <player> §7- Revoke operator status")
+        player.connection.send_chat_message("§4/weather <clear|rain> §7- Change weather")
+        player.connection.send_chat_message("§4/difficulty <0-3> §7- Change difficulty")
       end
     end
 
@@ -290,7 +372,7 @@ module CrystalMC::Network::Protocol
         target = @connection.server.get_player(target_name)
         if target
           player.set_position(target.x, target.y, target.z)
-          send_player_spawn(player.x, player.y, player.z)
+          send_player_position_update(player)
           player.connection.send_chat_message("§aTeleported to #{target_name}")
         else
           player.connection.send_chat_message("§cPlayer #{target_name} not found")
@@ -302,7 +384,7 @@ module CrystalMC::Network::Protocol
           y = args[1].to_f64
           z = args[2].to_f64
           player.set_position(x, y, z)
-          send_player_spawn(x, y, z)
+          send_player_position_update(player)
           player.connection.send_chat_message("§aTeleported to #{x.round(1)}, #{y.round(1)}, #{z.round(1)}")
         rescue
           player.connection.send_chat_message("§cInvalid coordinates")
@@ -375,8 +457,11 @@ module CrystalMC::Network::Protocol
       amount = (args[1]? || "1").to_i8?
 
       if item_id && amount && item_id > 0 && amount > 0
-        player.give_item(item_id, amount)
-        player.connection.send_chat_message("§aGave #{amount} of item #{item_id}")
+        if player.give_item(item_id, amount)
+          player.connection.send_chat_message("§aGave #{amount} of item #{item_id}")
+        else
+          player.connection.send_chat_message("§cCould not give item - inventory full?")
+        end
       else
         player.connection.send_chat_message("§cInvalid item ID or amount")
       end
@@ -387,7 +472,7 @@ module CrystalMC::Network::Protocol
       if player.gamemode == :survival
         player.health = 0
         player.connection.send_chat_message("§cYou died!")
-        # TODO: Handle player death and respawn
+        # Handle player death and respawn
       else
         player.connection.send_chat_message("§cYou can't kill yourself in creative mode!")
       end
@@ -424,7 +509,7 @@ module CrystalMC::Network::Protocol
       spawn_z = @connection.server.world.spawn_z.to_f64 + 0.5
 
       player.set_position(spawn_x, spawn_y, spawn_z)
-      send_player_spawn(spawn_x, spawn_y, spawn_z)
+      send_player_position_update(player)
       player.connection.send_chat_message("§aTeleported to spawn")
     end
 
@@ -460,10 +545,204 @@ module CrystalMC::Network::Protocol
       player.connection.send_chat_message("§fProtocol: §aBeta 1.7.3 (v14)")
     end
 
+    private def op_player(player : World::Player, args : Array(String))
+      unless player.op?
+        player.connection.send_chat_message("§cYou don't have permission to use this command.")
+        return
+      end
+
+      if args.empty?
+        player.connection.send_chat_message("§cUsage: /op <player>")
+        return
+      end
+
+      target_name = args[0]
+      target = @connection.server.get_player(target_name)
+      if target
+        target.op = true
+        player.connection.send_chat_message("§aMade #{target_name} a server operator")
+        target.connection.send_chat_message("§aYou are now a server operator")
+      else
+        player.connection.send_chat_message("§cPlayer #{target_name} not found")
+      end
+    end
+
+    private def deop_player(player : World::Player, args : Array(String))
+      unless player.op?
+        player.connection.send_chat_message("§cYou don't have permission to use this command.")
+        return
+      end
+
+      if args.empty?
+        player.connection.send_chat_message("§cUsage: /deop <player>")
+        return
+      end
+
+      target_name = args[0]
+      target = @connection.server.get_player(target_name)
+      if target
+        target.op = false
+        player.connection.send_chat_message("§aMade #{target_name} no longer a server operator")
+        target.connection.send_chat_message("§cYou are no longer a server operator")
+      else
+        player.connection.send_chat_message("§cPlayer #{target_name} not found")
+      end
+    end
+
+    private def handle_weather_command(player : World::Player, args : Array(String))
+      unless player.op?
+        player.connection.send_chat_message("§cYou don't have permission to use this command.")
+        return
+      end
+
+      if args.empty?
+        player.connection.send_chat_message("§cUsage: /weather <clear|rain>")
+        return
+      end
+
+      case args[0].downcase
+      when "clear"
+        player.connection.send_chat_message("§aWeather set to clear")
+      when "rain"
+        player.connection.send_chat_message("§aWeather set to rainy")
+      else
+        player.connection.send_chat_message("§cUnknown weather type")
+      end
+    end
+
+    private def handle_difficulty_command(player : World::Player, args : Array(String))
+      unless player.op?
+        player.connection.send_chat_message("§cYou don't have permission to use this command.")
+        return
+      end
+
+      if args.empty?
+        player.connection.send_chat_message("§cUsage: /difficulty <0-3>")
+        return
+      end
+
+      difficulty = args[0].to_i?
+      if difficulty && (0..3).includes?(difficulty)
+        player.connection.send_chat_message("§aDifficulty set to #{difficulty}")
+      else
+        player.connection.send_chat_message("§cInvalid difficulty. Use 0-3")
+      end
+    end
+
+    # Enhanced block interaction helper methods
+    private def calculate_placement_position(x : Int32, y : Int32, z : Int32, direction : Int32) : Tuple(Int32, Int32, Int32)
+      case direction
+      when 0 then {x, y - 1, z} # Bottom
+      when 1 then {x, y + 1, z} # Top
+      when 2 then {x, y, z - 1} # North
+      when 3 then {x, y, z + 1} # South
+      when 4 then {x - 1, y, z} # West
+      when 5 then {x + 1, y, z} # East
+      else        {x, y, z}
+      end
+    end
+
+    private def valid_placement_position(x : Int32, y : Int32, z : Int32, player : World::Player) : Bool
+      # Check world bounds
+      return false if y < 0 || y >= Constants::WORLD_HEIGHT
+
+      # Check if position is not inside player
+      player_x = player.x.floor.to_i32
+      player_y = player.y.floor.to_i32
+      player_z = player.z.floor.to_i32
+
+      return false if (player_x - x).abs <= 1 && (player_y - y).abs <= 2 && (player_z - z).abs <= 1
+
+      # Check if target block is replaceable (air, water, etc)
+      target_block = @connection.server.world.get_block(x, y, z)
+      target_block.air? || target_block.id == Block::WATER || target_block.id == Block::STATIONARY_WATER
+    end
+
+    private def can_place_item(item_id : Int16) : Bool
+      # List of placeable items (convertible to blocks)
+      placeable_items = [
+        Block::STONE, Block::GRASS, Block::DIRT, Block::COBBLESTONE, Block::WOOD, Block::SAPLING,
+        Block::BEDROCK, Block::SAND, Block::GRAVEL, Block::GOLD_ORE, Block::IRON_ORE, Block::COAL_ORE,
+        Block::LOG, Block::LEAVES, Block::GLASS, Block::SANDSTONE, Block::BED,
+      ]
+
+      placeable_items.includes?(item_id.to_u8)
+    end
+
+    private def consume_placement_item(player : World::Player, item_id : Int16)
+      # Remove one item from player's inventory
+      if player.inventory.remove_item(item_id, 1)
+        puts "📦 #{player.username} used item #{item_id} for placement"
+      else
+        puts "⚠️  #{player.username} tried to place item #{item_id} but doesn't have it"
+      end
+    end
+
+    private def drop_block_item(block : World::Block, x : Int32, y : Int32, z : Int32, player : World::Player)
+      # Determine what item to drop when block is broken
+      drop_item_id = case block.id
+                     when Block::STONE    then Block::COBBLESTONE
+                     when Block::GRASS    then Block::DIRT
+                     when Block::DIRT     then Block::DIRT
+                     when Block::WOOD     then Block::WOOD
+                     when Block::SAND     then Block::SAND
+                     when Block::GRAVEL   then Block::GRAVEL
+                     when Block::GOLD_ORE then Block::GOLD_ORE
+                     when Block::IRON_ORE then Block::IRON_ORE
+                     when Block::COAL_ORE then Block::COAL_ORE
+                     else                      0 # No drop
+                     end
+
+      if drop_item_id > 0
+        # Give the item to the player
+        player.give_item(drop_item_id.to_i16, 1)
+        puts "💎 #{block.id} dropped at #{x}, #{y}, #{z} -> given to #{player.username}"
+      else
+        puts "🪨 #{block.id} broken at #{x}, #{y}, #{z} (no drop)"
+      end
+    end
+
+    private def broadcast_block_change(packet : BlockChangePacket, x : Int32, y : Int32, z : Int32)
+      # Broadcast to all players within 64 blocks of the change
+      @connection.server.connections.each do |conn|
+        if conn.logged_in? && conn.player && conn.username != @connection.username
+          player = conn.player
+          distance = Math.sqrt((player.x - x)**2 + (player.y - y)**2 + (player.z - z)**2)
+          if distance <= 64.0 # Only send to players within 64 blocks
+            conn.send_packet(packet)
+          end
+        end
+      end
+    end
+
     private def broadcast_player_position(player : World::Player)
       # Broadcast player position to nearby players
       # This would send entity movement packets to other players in range
       # Implementation depends on your entity tracking system
+      @connection.server.connections.each do |conn|
+        if conn.logged_in? && conn.player && conn.username != player.username
+          other_player = conn.player
+          distance = player.distance_to(other_player)
+          if distance <= 64.0 # Only send to players within 64 blocks
+            # In a full implementation, we'd send entity movement packets here
+            # For now, just log it
+            puts "📍 Broadcasting #{player.username}'s position to #{other_player.username} (distance: #{distance.round(2)})"
+          end
+        end
+      end
+    end
+
+    private def send_player_position_update(player : World::Player)
+      pos_packet = Network::Protocol::PlayerLookMovePacket.new(
+        x: player.x,
+        y: player.y,
+        stance: player.y + 1.62,
+        z: player.z,
+        yaw: player.yaw,
+        pitch: player.pitch,
+        on_ground: player.on_ground
+      )
+      player.connection.send_packet(pos_packet)
     end
 
     # Beta 1.7.3 login response methods
@@ -498,7 +777,7 @@ module CrystalMC::Network::Protocol
 
       # Send player position
       player.set_position(@connection.server.world.spawn_x.to_f64 + 0.5, @connection.server.world.spawn_y.to_f64, @connection.server.world.spawn_z.to_f64 + 0.5)
-      send_player_spawn(player.x, player.y, player.z)
+      send_player_position_update(player)
 
       # Send health
       send_health_update(player)
@@ -517,19 +796,6 @@ module CrystalMC::Network::Protocol
     private def send_time_update
       time_packet = Protocol::TimeUpdatePacket.new(@connection.server.world.time)
       @connection.send_packet(time_packet)
-    end
-
-    private def send_player_spawn(x : Float64, y : Float64, z : Float64)
-      pos_packet = Protocol::PlayerLookMovePacket.new(
-        x: x,
-        y: y,
-        stance: y + 1.62,
-        z: z,
-        yaw: 0.0_f32,
-        pitch: 0.0_f32,
-        on_ground: true
-      )
-      @connection.send_packet(pos_packet)
     end
 
     private def send_health_update(player : World::Player)

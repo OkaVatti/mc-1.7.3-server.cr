@@ -1,6 +1,7 @@
 # src/network/connection.cr
 require "socket"
 require "../crystal_mc/constants"
+require "./protocol/net_handler"
 
 module CrystalMC::Network
   class Connection
