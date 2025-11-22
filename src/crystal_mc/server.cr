@@ -17,9 +17,9 @@ module CrystalMC
     property world : World::World
     property players : Hash(String, World::Player)
     property next_entity_id : Int32
+    getter connections : Array(Network::Connection)
 
     @server : TCPServer?
-    @connections : Array(Network::Connection)
     @tick_fiber : Fiber?
 
     # Plugin manager may be nil; we guard calls to it.
@@ -55,7 +55,6 @@ module CrystalMC
       seed
     end
 
-    # Rest of your Server class methods remain the same...
     def plugin_manager : Plugin::PluginManager?
       @plugin_manager
     end

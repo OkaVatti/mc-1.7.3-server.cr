@@ -37,7 +37,6 @@ module CrystalMC::World
       puts "🌍 Creating world '#{@name}' with seed: #{@seed}"
     end
 
-    # Rest of your World class methods remain the same...
     def get_chunk(chunk_x : Int32, chunk_z : Int32) : Chunk?
       coord = ChunkCoord.new(chunk_x, chunk_z)
 
@@ -55,6 +54,17 @@ module CrystalMC::World
 
       puts "Generated chunk at #{chunk_x}, #{chunk_z}"
       chunk
+    end
+
+    def unload_chunk(chunk_x : Int32, chunk_z : Int32)
+      coord = ChunkCoord.new(chunk_x, chunk_z)
+
+      @chunk_load_mutex.synchronize do
+        if chunk = @chunks.delete(coord)
+          # TODO: Save chunk to disk
+          puts "Unloaded chunk at #{chunk_x}, #{chunk_z}"
+        end
+      end
     end
 
     def get_block(x : Int32, y : Int32, z : Int32) : Block
@@ -81,54 +91,13 @@ module CrystalMC::World
       chunk.set_block(local_x, y, local_z, block)
     end
 
+    def is_solid(x : Int32, y : Int32, z : Int32) : Bool
+      get_block(x, y, z).solid?
+    end
+
     def tick
       @time += 1
       @time_of_day = (@time % 24000)
-    end
-
-    def chunk_count : Int32
-      @chunks.size
-    end
-
-    private def world_to_chunk_coord(coord : Int32) : Tuple(Int32, Int32)
-      chunk_coord = coord // Constants::CHUNK_WIDTH
-      local_coord = coord % Constants::CHUNK_WIDTH
-
-      if local_coord < 0
-        local_coord += Constants::CHUNK_WIDTH
-      end
-
-      {chunk_coord, local_coord}
-    end
-
-    private def initialize_world_components(name : String?, seed : Int64?)
-      @name = name || "New World"
-      @seed = seed ? seed.to_i64 : Random::Secure.rand(Int32::MAX).to_i64
-
-      puts "🌍 Creating world '#{@name}' with seed: #{@seed}"
-
-      # Reinitialize chunk generator with actual seed
-      @chunk_generator = ChunkGenerator.new(@seed.to_i32)
-    rescue ex : Exception
-      puts "💥 Error during world component initialization: #{ex.message}"
-      # Keep the safe defaults already set
-    end
-
-    private def initialize_world_components(name : String?, seed : Int64?)
-      @name = name || "New World"
-      @seed = seed ? seed.to_i64 : Random::Secure.rand(Int32::MAX).to_i64
-
-      puts "🌍 Creating world '#{@name}' with seed: #{@seed}"
-
-      @chunk_generator = ChunkGenerator.new(@seed.to_i32)
-    rescue ex : Exception
-      puts "💥 Error during world component initialization: #{ex.message}"
-    end
-
-    # Enhanced tick method with day/night cycle
-    def tick
-      @time += 1
-      @time_of_day = (time % 24000) # Minecraft day is 24000 ticks
 
       # Update lighting for loaded chunks at dawn/dusk
       if @time % 100 == 0 # Update lighting every 5 seconds
@@ -147,11 +116,11 @@ module CrystalMC::World
       when 0..12000 # Daytime
         15_u8
       when 12000..14000 # Sunset
-        (15 - ((@time_of_day - 12000) // 200).to_u8).clamp(7, 15)
+        (15 - ((@time_of_day - 12000) // 200).to_u8).clamp(7_u8, 15_u8).to_u8
       when 14000..22000 # Nighttime
         7_u8
       else # Sunrise
-        (7 + ((@time_of_day - 22000) // 200).to_u8).clamp(7, 15)
+        (7 + ((@time_of_day - 22000) // 200).to_u8).clamp(7_u8, 15_u8).to_u8
       end
     end
 
@@ -175,20 +144,17 @@ module CrystalMC::World
       end
     end
 
-    private def update_lighting_for_time_of_day
-      sky_light = get_sky_light_level
-      puts "🌅 Updating lighting to level #{sky_light} (Time: #{get_time_of_day_string})"
-
-      # In a full implementation, we'd update sky light for all loaded chunks
-      # This is simplified for now
+    # Get loaded chunks
+    def loaded_chunks : Array(Chunk)
+      @chunks.values
     end
 
-    private def save_loaded_chunks
-      puts "💾 Auto-saving #{@chunks.size} chunks..."
-      # In a full implementation, we'd save chunks to region files
+    # Get chunk count
+    def chunk_count : Int32
+      @chunks.size
     end
 
-    # Enhanced chunk management with view distance
+    # Get chunks in radius
     def get_chunks_in_radius(center_x : Int32, center_z : Int32, radius : Int32) : Array(Chunk)
       chunks = [] of Chunk
 
@@ -206,56 +172,25 @@ module CrystalMC::World
       chunks
     end
 
-    # Get nearby players for a position
-    def get_nearby_players(x : Int32, y : Int32, z : Int32, distance : Float64) : Array(Player)
-      # This would be implemented when we have player tracking
-      [] of Player
-    end
+    private def world_to_chunk_coord(coord : Int32) : Tuple(Int32, Int32)
+      chunk_coord = coord // Constants::CHUNK_WIDTH
+      local_coord = coord % Constants::CHUNK_WIDTH
 
-    # Load a chunk (generate if doesn't exist)
-    def load_chunk(chunk_x : Int32, chunk_z : Int32) : Chunk
-      coord = ChunkCoord.new(chunk_x, chunk_z)
-
-      # Generate the chunk
-      chunk = @chunk_generator.generate(chunk_x, chunk_z)
-      @chunks[coord] = chunk
-
-      puts "Generated chunk at #{chunk_x}, #{chunk_z}"
-      chunk
-    end
-
-    # Unload a chunk
-    def unload_chunk(chunk_x : Int32, chunk_z : Int32)
-      coord = ChunkCoord.new(chunk_x, chunk_z)
-
-      @chunk_load_mutex.synchronize do
-        if chunk = @chunks.delete(coord)
-          # TODO: Save chunk to disk
-          puts "Unloaded chunk at #{chunk_x}, #{chunk_z}"
-        end
+      if local_coord < 0
+        local_coord += Constants::CHUNK_WIDTH
       end
+
+      {chunk_coord, local_coord}
     end
 
-    # Check if block is solid
-    def is_solid(x : Int32, y : Int32, z : Int32) : Bool
-      get_block(x, y, z).solid?
+    private def update_lighting_for_time_of_day
+      sky_light = get_sky_light_level
+      # In a full implementation, we'd update sky light for all loaded chunks
+      # This is simplified for now
     end
 
-    # Tick the world
-    def tick
-      @time += 1
-
-      # TODO: Update entities, redstone, etc.
-    end
-
-    # Get loaded chunks
-    def loaded_chunks : Array(Chunk)
-      @chunks.values
-    end
-
-    # Get chunk count
-    def chunk_count : Int32
-      @chunks.size
+    private def save_loaded_chunks
+      # In a full implementation, we'd save chunks to region files
     end
 
     # Helper struct for chunk coordinates

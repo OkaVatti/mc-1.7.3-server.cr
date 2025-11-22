@@ -144,7 +144,7 @@ module CrystalMC::Network::Protocol
         broken_block = @connection.server.world.get_block(world_x, world_y, world_z)
 
         # Don't allow breaking bedrock
-        if broken_block.id == Block::BEDROCK
+        if broken_block.id == World::Block::BEDROCK
           player.connection.send_chat_message("§cYou can't break bedrock!")
           return
         end
@@ -222,40 +222,6 @@ module CrystalMC::Network::Protocol
     def handle_map_chunk(packet : MapChunkPacket)
       puts "🗺️  Player #{@connection.username} map chunk: #{packet.x}, #{packet.z}"
       # Client sent chunk data - we don't handle client-sent chunks in Beta 1.7.3
-    end
-
-    def handle_entity_action(packet : EntityActionPacket)
-      player = @connection.player
-      return unless player
-
-      case packet.action_id
-      when 1 # Crouch
-        puts "🧎 Player #{player.username} crouching"
-      when 2 # Uncrouch
-        puts "🧍 Player #{player.username} standing up"
-      when 3 # Leave bed
-        puts "🛏️  Player #{player.username} leaving bed"
-      else
-        puts "🎭 Player #{player.username} unknown action: #{packet.action_id}"
-      end
-    end
-
-    def handle_animation(packet : AnimationPacket)
-      player = @connection.player
-      return unless player
-
-      case packet.animation
-      when 1 # Swing arm
-        puts "👊 Player #{player.username} swinging arm"
-      when 2 # Damage animation
-        puts "💥 Player #{player.username} taking damage"
-      when 3 # Leave bed
-        puts "🛏️  Player #{player.username} leaving bed"
-      when 5 # Eat food
-        puts "🍎 Player #{player.username} eating"
-      else
-        puts "🎬 Player #{player.username} unknown animation: #{packet.animation}"
-      end
     end
 
     # Complete command handling system
@@ -460,7 +426,7 @@ module CrystalMC::Network::Protocol
         if player.give_item(item_id, amount)
           player.connection.send_chat_message("§aGave #{amount} of item #{item_id}")
         else
-          player.connection.send_chat_message("§cCould not give item - inventory full?")
+          player.connection.send_chat_message("§cCould not give item (inventory full?)")
         end
       else
         player.connection.send_chat_message("§cInvalid item ID or amount")
@@ -655,15 +621,19 @@ module CrystalMC::Network::Protocol
 
       # Check if target block is replaceable (air, water, etc)
       target_block = @connection.server.world.get_block(x, y, z)
-      target_block.air? || target_block.id == Block::WATER || target_block.id == Block::STATIONARY_WATER
+      target_block.air? || target_block.id == World::Block::WATER_STATIONARY || target_block.id == World::Block::WATER_FLOWING
     end
 
     private def can_place_item(item_id : Int16) : Bool
       # List of placeable items (convertible to blocks)
       placeable_items = [
-        Block::STONE, Block::GRASS, Block::DIRT, Block::COBBLESTONE, Block::WOOD, Block::SAPLING,
-        Block::BEDROCK, Block::SAND, Block::GRAVEL, Block::GOLD_ORE, Block::IRON_ORE, Block::COAL_ORE,
-        Block::LOG, Block::LEAVES, Block::GLASS, Block::SANDSTONE, Block::BED,
+        World::Block::STONE, World::Block::GRASS, World::Block::DIRT, World::Block::COBBLESTONE,
+        World::Block::WOOD_PLANKS, World::Block::SAPLING, World::Block::BEDROCK, World::Block::SAND,
+        World::Block::GRAVEL, World::Block::GOLD_ORE, World::Block::IRON_ORE, World::Block::COAL_ORE,
+        World::Block::WOOD, World::Block::LEAVES, World::Block::GLASS, World::Block::SANDSTONE,
+        World::Block::BED, World::Block::LAPIS_LAZULI_ORE, World::Block::LAPIS_LAZULI_BLOCK,
+        World::Block::WOOL, World::Block::GOLD_BLOCK, World::Block::IRON_BLOCK, World::Block::BRICK_BLOCK,
+        World::Block::TNT, World::Block::BOOKSHELF, World::Block::MOSS_STONE, World::Block::OBSIDIAN,
       ]
 
       placeable_items.includes?(item_id.to_u8)
@@ -681,22 +651,22 @@ module CrystalMC::Network::Protocol
     private def drop_block_item(block : World::Block, x : Int32, y : Int32, z : Int32, player : World::Player)
       # Determine what item to drop when block is broken
       drop_item_id = case block.id
-                     when Block::STONE    then Block::COBBLESTONE
-                     when Block::GRASS    then Block::DIRT
-                     when Block::DIRT     then Block::DIRT
-                     when Block::WOOD     then Block::WOOD
-                     when Block::SAND     then Block::SAND
-                     when Block::GRAVEL   then Block::GRAVEL
-                     when Block::GOLD_ORE then Block::GOLD_ORE
-                     when Block::IRON_ORE then Block::IRON_ORE
-                     when Block::COAL_ORE then Block::COAL_ORE
-                     else                      0 # No drop
+                     when World::Block::STONE    then World::Block::COBBLESTONE
+                     when World::Block::GRASS    then World::Block::DIRT
+                     when World::Block::DIRT     then World::Block::DIRT
+                     when World::Block::WOOD     then World::Block::WOOD
+                     when World::Block::SAND     then World::Block::SAND
+                     when World::Block::GRAVEL   then World::Block::GRAVEL
+                     when World::Block::GOLD_ORE then World::Block::GOLD_ORE
+                     when World::Block::IRON_ORE then World::Block::IRON_ORE
+                     when World::Block::COAL_ORE then World::Block::COAL_ORE
+                     else                             0 # No drop
                      end
 
       if drop_item_id > 0
         # Give the item to the player
         player.give_item(drop_item_id.to_i16, 1)
-        puts "💎 #{block.id} dropped at #{x}, #{y}, #{z} -> given to #{player.username}"
+        puts "💎 #{block.id} dropped at #{x}, #{y}, #{z} (given to #{player.username})"
       else
         puts "🪨 #{block.id} broken at #{x}, #{y}, #{z} (no drop)"
       end
@@ -705,29 +675,37 @@ module CrystalMC::Network::Protocol
     private def broadcast_block_change(packet : BlockChangePacket, x : Int32, y : Int32, z : Int32)
       # Broadcast to all players within 64 blocks of the change
       @connection.server.connections.each do |conn|
-        if conn.logged_in? && conn.player && conn.username != @connection.username
-          player = conn.player
-          distance = Math.sqrt((player.x - x)**2 + (player.y - y)**2 + (player.z - z)**2)
-          if distance <= 64.0 # Only send to players within 64 blocks
-            conn.send_packet(packet)
-          end
+        next unless conn.logged_in?
+        next if conn.username == @connection.username
+
+        # Narrow type by assigning into a local var and skipping nils
+        player = conn.player
+        next unless player
+
+        # Ensure float math for sqrt
+        dx = player.x.to_f64 - x.to_f64
+        dy = player.y.to_f64 - y.to_f64
+        dz = player.z.to_f64 - z.to_f64
+        distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+
+        if distance <= 64.0 # Only send to players within 64 blocks
+          conn.send_packet(packet)
         end
       end
     end
 
     private def broadcast_player_position(player : World::Player)
       # Broadcast player position to nearby players
-      # This would send entity movement packets to other players in range
-      # Implementation depends on your entity tracking system
       @connection.server.connections.each do |conn|
-        if conn.logged_in? && conn.player && conn.username != player.username
-          other_player = conn.player
-          distance = player.distance_to(other_player)
-          if distance <= 64.0 # Only send to players within 64 blocks
-            # In a full implementation, we'd send entity movement packets here
-            # For now, just log it
-            puts "📍 Broadcasting #{player.username}'s position to #{other_player.username} (distance: #{distance.round(2)})"
-          end
+        next unless conn.logged_in?
+        next if conn.username == player.username
+
+        other_player = conn.player
+        next unless other_player
+
+        distance = player.distance_to(other_player)
+        if distance <= 64.0 # Only send to players within 64 blocks
+          puts "📍 Broadcasting #{player.username}'s position to #{other_player.username} (distance: #{distance.round(2)})"
         end
       end
     end
@@ -754,6 +732,34 @@ module CrystalMC::Network::Protocol
       @connection.player = player
       @connection.server.add_player(player)
 
+      # Mark connection as logged in and refresh keep-alive timestamp
+      # queue nothing at login; instead send ONE chunk after a short delay (in its own fiber)
+      spawn do
+        sleep 800.milliseconds # give client time to finish login handshake
+        cx = @connection.server.world.spawn_x // 16
+        cz = @connection.server.world.spawn_z // 16
+
+        begin
+          pre = Protocol::PreChunkPacket.new(cx, cz, true)
+          @connection.send_packet(pre)
+
+          # small delay between pre and map
+          sleep 150.milliseconds
+
+          chunk = @connection.server.world.get_chunk(cx, cz)
+          if chunk
+            map_chunk = Protocol::MapChunkPacket.from_chunk(chunk)
+            @connection.send_packet(map_chunk)
+            puts "✅ Single chunk sent to #{@connection.username} (#{cx},#{cz})"
+          else
+            puts "⚠️ No chunk generated for #{cx},#{cz}"
+          end
+        rescue ex
+          puts "❗ Single-chunk send error: #{ex.class} #{ex.message}"
+          puts ex.backtrace.join("\n")
+        end
+      end
+
       puts "🎮 Player #{username} logged in (entity ID: #{entity_id})"
 
       # Send login response
@@ -770,22 +776,28 @@ module CrystalMC::Network::Protocol
       )
       @connection.send_packet(response)
 
-      # Send all the necessary Beta 1.7.3 packets
+      # Send minimal immediate packets (spawn pos & time)
       send_spawn_position(@connection.server.world.spawn_x, @connection.server.world.spawn_y, @connection.server.world.spawn_z)
       send_time_update
-      send_spawn_chunks(@connection.server.world.spawn_x, @connection.server.world.spawn_z)
 
-      # Send player position
+      # Queue the actual chunk sending so it happens in small batches by Connection.tick
+      # Use a conservative initial view distance (changeable)
+      # Queue the actual chunk sending so it happens in small batches by Connection.tick
+      spawn_chunk_x = @connection.server.world.spawn_x // 16
+      spawn_chunk_z = @connection.server.world.spawn_z // 16
+
+      initial_view_distance = 1
+      @connection.send_initial_chunks(spawn_chunk_x, spawn_chunk_z, initial_view_distance)
+
+      # Send player position + health (small packets)
       player.set_position(@connection.server.world.spawn_x.to_f64 + 0.5, @connection.server.world.spawn_y.to_f64, @connection.server.world.spawn_z.to_f64 + 0.5)
       send_player_position_update(player)
-
-      # Send health
       send_health_update(player)
 
       # Broadcast join message (except to the joining player)
       @connection.server.broadcast_except("§e#{username} joined the game", username)
 
-      puts "✅ Completed Beta 1.7.3 login sequence for #{username}"
+      puts "✅ Completed Beta 1.7.3 login sequence for #{username} (queued chunks)"
     end
 
     private def send_spawn_position(x : Int32, y : Int32, z : Int32)

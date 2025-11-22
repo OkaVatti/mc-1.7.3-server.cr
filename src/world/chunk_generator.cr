@@ -2,7 +2,6 @@ require "./chunk"
 require "./block"
 require "./perlin_noise"
 require "../crystal_mc/constants"
-require "random"
 
 module CrystalMC::World
   class ChunkGenerator
@@ -17,36 +16,10 @@ module CrystalMC::World
     STONE_END     =  5
     DIRT_DEPTH    =  3
 
-    def initialize(seed : Int32)
-      @seed = seed
+    def initialize(@seed : Int32)
+      # Simple initialization - PerlinNoise should never fail now
       @noise = PerlinNoise.new(@seed)
       @random = Random.new(@seed.to_i64.abs.to_u64)
-    end
-
-    def generate(chunk_x : Int32, chunk_z : Int32) : Chunk
-      chunk = Chunk.new(chunk_x, chunk_z)
-
-      # Generate simple flat terrain for now
-      16.times do |x|
-        16.times do |z|
-          # Simple flat terrain
-          chunk.set_block(x, 0, z, Block.stone)
-          (1..3).each { |y| chunk.set_block(x, y, z, Block.dirt) }
-          chunk.set_block(x, 4, z, Block.grass)
-
-          # Set basic lighting
-          256.times do |y|
-            if y > 4
-              chunk.set_sky_light(x, y, z, 15_u8)
-            else
-              chunk.set_sky_light(x, y, z, 0_u8)
-            end
-            chunk.set_block_light(x, y, z, 0_u8)
-          end
-        end
-      end
-
-      chunk
     end
 
     def generate(chunk_x : Int32, chunk_z : Int32) : Chunk
@@ -96,7 +69,7 @@ module CrystalMC::World
       base_height = SEA_LEVEL
       height = base_height + continent + hills + detail
 
-      height.to_i.clamp(5, 255) # Use actual world height limit
+      height.to_i.clamp(5, 127) # Beta 1.7.3 world height is 128
     end
 
     private def generate_underground_layers(chunk : Chunk, x : Int32, z : Int32, height : Int32)
@@ -188,7 +161,7 @@ module CrystalMC::World
             nz = z + dz
 
             next if nx < 0 || nx >= 16
-            next if ny < 0 || ny >= 256
+            next if ny < 0 || ny >= 128
             next if nz < 0 || nz >= 16
 
             if chunk.get_block(nx, ny, nz).id == Block::STONE
@@ -205,7 +178,7 @@ module CrystalMC::World
           # Find the highest solid block for this column
           highest_block = find_highest_block(chunk, x, z)
 
-          256.times do |y|
+          128.times do |y|
             if y > highest_block
               # Above ground - full sunlight
               chunk.set_sky_light(x, y, z, 15_u8)
@@ -225,7 +198,7 @@ module CrystalMC::World
     end
 
     private def find_highest_block(chunk : Chunk, x : Int32, z : Int32) : Int32
-      255.downto(0) do |y|
+      127.downto(0) do |y|
         block = chunk.get_block(x, y, z)
         unless block.air? || block.transparent?
           return y

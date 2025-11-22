@@ -1,6 +1,11 @@
 # src/plugin/plugin.cr
 module CrystalMC::Plugin
   abstract class Plugin
+    property server : CrystalMC::Server
+
+    def initialize(@server : CrystalMC::Server)
+    end
+
     abstract def name : String
     abstract def version : String
     abstract def author : String
@@ -44,34 +49,28 @@ module CrystalMC::Plugin
     end
 
     # Helper methods for plugins
-    def get_server : CrystalMC::Server
-      # This would be set when the plugin is loaded
-      # For now, plugins need to store a reference to the server
-      raise "Server reference not available"
-    end
-
     def get_world : World::World
-      get_server.world
+      @server.world
     end
 
     def broadcast_message(message : String)
-      get_server.broadcast(message)
+      @server.broadcast(message)
     end
 
     def schedule_task(delay_ticks : Int32, &block : ->)
-      get_server.plugin_manager.try do |pm|
+      @server.plugin_manager.try do |pm|
         pm.schedule_task(self, delay_ticks, block)
       end
     end
 
     def schedule_repeating_task(delay_ticks : Int32, period_ticks : Int32, &block : ->)
-      get_server.plugin_manager.try do |pm|
+      @server.plugin_manager.try do |pm|
         pm.schedule_repeating_task(self, delay_ticks, period_ticks, block)
       end
     end
 
     def register_command(name : String, &handler : World::Player, Array(String) ->)
-      get_server.plugin_manager.try do |pm|
+      @server.plugin_manager.try do |pm|
         pm.register_command(name, self, handler)
       end
     end

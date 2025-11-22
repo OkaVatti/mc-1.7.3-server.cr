@@ -15,6 +15,9 @@ module CrystalMC::World
     property selected_slot : Int32 = 0
     property experience : Int32 = 0
     property level : Int32 = 0
+    property yaw : Float32 = 0.0_f32
+    property pitch : Float32 = 0.0_f32
+    property game_mode : Int32 = 0
 
     @regeneration_timer : Int32 = 0
     @hunger_timer : Int32 = 0
@@ -71,8 +74,8 @@ module CrystalMC::World
       end
     end
 
-    def heal(amount : Int32)
-      @health += amount
+    def heal(amount : Float32)
+      @health += amount.to_i32
       @health = 20 if @health > 20
       send_health_update
     end
@@ -90,7 +93,7 @@ module CrystalMC::World
       send_health_update
     end
 
-    def give_item(item_id : Int16, amount : Int8 = 1, damage : Int16 = 0)
+    def give_item(item_id : Int16, amount : Int8 = 1, damage : Int16 = 0) : Bool
       @inventory.add_item(item_id, amount, damage)
     end
 
@@ -123,7 +126,7 @@ module CrystalMC::World
 
     # Get block player is looking at (simplified)
     def targeted_block(distance : Float64 = 5.0) : Tuple(Int32, Int32, Int32)?
-      # Simple raycast - in reality this would be more complex
+      # Simple raycast (in reality this would be more complex)
       look_x = @x + Math.cos(@yaw) * distance
       look_z = @z + Math.sin(@yaw) * distance
       look_y = @y + Math.sin(@pitch) * distance
@@ -136,9 +139,13 @@ module CrystalMC::World
     end
 
     private def give_starter_items
-      @inventory.set_slot(0, ItemStack.new(Block::WOOD.to_i16, 16_i8))
-      @inventory.set_slot(1, ItemStack.new(Block::STONE.to_i16, 32_i8))
-      @inventory.set_slot(2, ItemStack.new(Block::DIRT.to_i16, 64_i8))
+      # Use numeric IDs instead of World::Block constants so this compiles even if
+      # the block-constants module isn't present yet.
+      # Classic Beta IDs (used here as safe literals):
+      #  5 = Wooden Planks, 1 = Stone, 3 = Dirt
+      @inventory.set_slot(0, ItemStack.new(5_i16, 16_i8)) # Wooden planks x16
+      @inventory.set_slot(1, ItemStack.new(1_i16, 32_i8)) # Stone x32
+      @inventory.set_slot(2, ItemStack.new(3_i16, 64_i8)) # Dirt x64
       send_inventory_update
     end
 
@@ -152,7 +159,7 @@ module CrystalMC::World
     end
 
     def can_harvest_block(block_id : UInt8) : Bool
-      # Simple harvesting logic - in survival, need correct tool
+      # Simple harvesting logic (in survival, need correct tool)
       @gamemode == :creative
     end
 
@@ -169,8 +176,8 @@ module CrystalMC::World
           chunk = @world.get_chunk(current_chunk_x + dx, current_chunk_z + dz)
           if chunk
             # In a real implementation, we'd send chunk data to player
-            # For now, just log it
-            puts "🌍 Player #{@username} can see chunk (#{chunk.x}, #{chunk.z})"
+            # For now, just mark it as accessed
+            chunk.mark_accessed
           end
         end
       end

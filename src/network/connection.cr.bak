@@ -1,3 +1,4 @@
+# src/network/connection.cr
 require "socket"
 require "../crystal_mc/constants"
 require "./protocol/net_handler"
@@ -18,7 +19,6 @@ module CrystalMC::Network
     @chunk_send_timer : Time
     @net_handler : Protocol::NetHandler?
     @packet_handler : PacketHandler?
-    # NEW: single active chunk sender flag
     @chunk_sender_active : Bool = false
     TIMEOUT_SECONDS = 120
 
@@ -35,7 +35,6 @@ module CrystalMC::Network
       @pending_chunks = [] of Tuple(Int32, Int32)
       @chunk_send_timer = Time.utc
       @player = nil
-      @chunk_sender_active = false
     end
 
     private def ensure_handlers_initialized
@@ -139,7 +138,16 @@ module CrystalMC::Network
       @pending_chunks.concat(chunk_coords)
     end
 
-    # SENTINEL: send only one chunk generator at a time, and never pre-generate
+    # add an instance ivar near the top of the class:
+    #   @chunk_sender_active : Bool = false
+    #
+    # Then replace send_chunk_batch with:
+
+    # Make sure the class has these ivars defined near the top:
+    #   @pending_chunks : Array(Tuple(Int32, Int32))
+    #   @chunk_send_timer : Time
+    #   @chunk_sender_active : Bool = false
+
     def send_chunk_batch
       return if @pending_chunks.empty?
 
@@ -151,22 +159,22 @@ module CrystalMC::Network
 
       chunk_x, chunk_z = pair.first
 
-      # send small packet immediately
+      # Send small pre-chunk packet immediately (cheap)
       pre_chunk = Protocol::PreChunkPacket.new(chunk_x, chunk_z, true)
       send_packet(pre_chunk)
 
-      # mark active and spawn the heavy work
+      # Mark active and spawn the heavy work in a separate fiber
       @chunk_sender_active = true
 
       spawn do
         begin
-          # abort early if socket already closed
+          # Abort if socket closed
           if @socket.closed?
             @chunk_sender_active = false
             next
           end
 
-          # Deferred generation: generate chunk only now
+          # Generate the chunk payload now (deferred generation)
           chunk = @server.world.get_chunk(chunk_x, chunk_z)
           unless chunk
             @chunk_sender_active = false
@@ -176,10 +184,10 @@ module CrystalMC::Network
           # Build the MapChunk packet object from the chunk
           map_chunk = Protocol::MapChunkPacket.from_chunk(chunk)
 
-          # Small breathing room to reduce kernel/socket pressure
+          # Give client and OS a tiny breathing room
           sleep 50.milliseconds
 
-          # Final safety check before write
+          # Final safety check before writing
           if @socket.closed?
             @chunk_sender_active = false
             next
@@ -324,12 +332,12 @@ module CrystalMC::Network
       @logged_in = false
       @player = nil
 
-      # finally close socket
+      # Finally close socket
       @socket.close rescue nil
     end
 
     def tick
-      if !@pending_chunks.empty? && (Time.utc - @chunk_send_timer).total_milliseconds > 150
+      if !@pending_chunks.empty? && (Time.utc - @chunk_send_timer).total_milliseconds > 50
         send_chunk_batch
       end
 
